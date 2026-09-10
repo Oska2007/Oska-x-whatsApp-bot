@@ -87,7 +87,6 @@ async function connectToWhatsApp() {
             try {
                 await sock.sendMessage(task.from, { react: { text: '⏳', key: task.msg.key } });
 
-                // Axios GET with Live Progress Listener
                 const response = await axios.get(task.url, { 
                     responseType: 'arraybuffer',
                     signal: activeAbortController.signal,
