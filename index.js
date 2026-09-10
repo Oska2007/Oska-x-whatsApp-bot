@@ -10,12 +10,23 @@ import pino from 'pino';
 import axios from 'axios';
 import mime from 'mime-types';
 import { fileTypeFromBuffer } from 'file-type';
+import os from 'os';
 import config from './config.js';
 
 // Global Download Queue & Controller
 const downloadQueue = [];
 let isProcessingQueue = false;
 let activeAbortController = null;
+
+// Helper: Format Bytes to Human Readable Size
+function formatBytes(bytes, decimals = 2) {
+    if (!bytes || isNaN(bytes) || bytes === 0) return 'Unknown Size';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('./session');
@@ -68,7 +79,6 @@ async function connectToWhatsApp() {
             try {
                 await sock.sendMessage(task.from, { react: { text: '⏳', key: task.msg.key } });
 
-                // Direct download without size limit check
                 const response = await axios.get(task.url, { 
                     responseType: 'arraybuffer',
                     signal: activeAbortController.signal,
@@ -82,13 +92,11 @@ async function connectToWhatsApp() {
                 let mimeType = detectedType?.mime || response.headers['content-type']?.split(';')[0] || 'application/octet-stream';
                 let ext = detectedType?.ext || mime.extension(mimeType) || '';
 
-                let fileName = '';
+                let fileName = task.fileName || 'downloaded_file';
                 const disposition = response.headers['content-disposition'];
 
                 if (disposition && disposition.includes('filename=')) {
                     fileName = disposition.split('filename=')[1].replace(/["']/g, '').trim();
-                } else {
-                    fileName = task.url.split('/').pop().split('?')[0] || 'downloaded_file';
                 }
 
                 if (!fileName.includes('.') || fileName.endsWith('.bin')) {
@@ -158,20 +166,42 @@ async function connectToWhatsApp() {
                 return;
             }
 
-            await sock.sendMessage(from, { react: { text: '📥', key: msg.key } });
+            await sock.sendMessage(from, { react: { text: '🔍', key: msg.key } });
 
-            const tempName = url.split('/').pop().split('?')[0] || 'Unknown File';
-            
+            let tempName = url.split('/').pop().split('?')[0] || 'Unknown File';
+            let fileSize = 'Unknown Size';
+
+            // HEAD Request එකක් මගින් File Name එකයි Size එකයි කලින්ම ලබා ගැනීම
+            try {
+                const headRes = await axios.head(url, {
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                    timeout: 5000
+                });
+
+                const length = headRes.headers['content-length'];
+                if (length) fileSize = formatBytes(parseInt(length));
+
+                const disposition = headRes.headers['content-disposition'];
+                if (disposition && disposition.includes('filename=')) {
+                    tempName = disposition.split('filename=')[1].replace(/["']/g, '').trim();
+                }
+            } catch (e) {
+                // HEAD Request එක අසාර්ථක වුවහොත් default values භාවිතා වේ.
+            }
+
             downloadQueue.push({
                 url,
                 from,
                 msg,
                 fileName: tempName,
+                fileSize: fileSize,
                 status: 'pending'
             });
 
+            await sock.sendMessage(from, { react: { text: '📥', key: msg.key } });
+
             await sock.sendMessage(from, { 
-                text: `📥 Link added to download list\n🔢 Position in queue: ${downloadQueue.length}` 
+                text: `📥 *Link Added to Queue*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n🔢 *Queue Position:* ${downloadQueue.length}` 
             }, { quoted: msg });
 
             processQueue();
@@ -189,7 +219,7 @@ async function connectToWhatsApp() {
             let queueText = `📋 *Download Queue List (${downloadQueue.length})*\n\n`;
             downloadQueue.forEach((item, index) => {
                 const statusBadge = item.status === 'processing' ? '⚙️' : '⏳';
-                queueText += `*${index + 1}.* ${statusBadge} *File Name:* ${item.fileName}\n`;
+                queueText += `*${index + 1}.* ${statusBadge} *Name:* ${item.fileName}\n   📊 *Size:* ${item.fileSize || 'Unknown'}\n`;
             });
 
             await sock.sendMessage(from, { text: queueText.trim() }, { quoted: msg });
@@ -272,6 +302,32 @@ async function connectToWhatsApp() {
         if (command === 'jid') {
             await sock.sendMessage(from, { react: { text: '📌', key: msg.key } });
             await sock.sendMessage(from, { text: `📌 Current Chat JID:\n${from}` }, { quoted: msg });
+        }
+
+        // --- COMMAND 6: Platform & System Info (.platform / .sys / .host) ---
+        if (command === 'platform' || command === 'sys' || command === 'host') {
+            await sock.sendMessage(from, { react: { text: '🖥️', key: msg.key } });
+
+            const platform = os.platform();
+            let osName = platform;
+            if (platform === 'win32') osName = 'Windows';
+            else if (platform === 'linux') osName = 'Linux (Ubuntu/Debian/VPS)';
+            else if (platform === 'darwin') osName = 'macOS';
+            else if (platform === 'android') osName = 'Android (Termux)';
+
+            const arch = os.arch();
+            const totalMem = formatBytes(os.totalmem());
+            const freeMem = formatBytes(os.freemem());
+            const uptimeHours = (os.uptime() / 3600).toFixed(1);
+
+            const sysInfo = `🖥️ *Bot Hosting Platform Info*\n\n` +
+                            `💻 *OS Platform:* ${osName}\n` +
+                            `⚙️ *Architecture:* ${arch}\n` +
+                            `🟢 *Node.js Version:* ${process.version}\n` +
+                            `💾 *RAM Usage:* ${freeMem} Free / ${totalMem} Total\n` +
+                            `⏱️ *System Uptime:* ${uptimeHours} Hours`;
+
+            await sock.sendMessage(from, { text: sysInfo }, { quoted: msg });
         }
     });
 }
