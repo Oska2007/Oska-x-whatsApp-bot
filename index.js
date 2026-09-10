@@ -13,6 +13,9 @@ import { fileTypeFromBuffer } from 'file-type';
 import os from 'os';
 import config from './config.js';
 
+// Bot ක්‍රියාත්මක වූ වේලාව (Old messages ignore කිරීමට)
+const botStartTime = Math.floor(Date.now() / 1000);
+
 // Global Download Queue & Controller
 const downloadQueue = [];
 let isProcessingQueue = false;
@@ -158,6 +161,15 @@ async function connectToWhatsApp() {
 
         const msg = messages[0];
         if (!msg.message) return;
+
+        // --- OLD MESSAGES FIX ---
+        // Bot එක On වීමට පෙර ආපු පැරණි Messages ignore කිරීම
+        const msgTime = typeof msg.messageTimestamp === 'number' 
+            ? msg.messageTimestamp 
+            : (msg.messageTimestamp?.low || 0);
+
+        if (msgTime < botStartTime) return;
+        // ------------------------
 
         const from = msg.key.remoteJid;
         const textMessage = msg.message.conversation ||
