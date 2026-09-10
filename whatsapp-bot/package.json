@@ -1,0 +1,18 @@
+{
+  "name": "baileys-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot using Baileys Library",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.12",
+    "axios": "^1.7.9",
+    "file-type": "^22.0.2",
+    "mime-types": "^3.0.2",
+    "pino": "^9.6.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
