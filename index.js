@@ -179,24 +179,24 @@ async function connectToWhatsApp() {
                 `PREFIX: \`${config.prefix}\`\n\n` +
                 `📥 *DOWNLOAD COMMANDS*\n` +
                 `🔹 *${config.prefix}dlurlm <Link>*\n` +
-                `└ Direct link එකකින් file එකක් download කර ගැනීමට.\n\n` +
+                `└ Download a file directly from a direct link.\n\n` +
                 `⚡ *${config.prefix}qf <Queue No | Link>*\n` +
-                `└ Queue එකේ ඇති එකක් මුලට ගැනීමට හෝ Urgent Link එකක් ඊළඟට download කිරීමට.\n\n` +
+                `└ Move a queue item to top or add an urgent direct link next in line.\n\n` +
                 `📊 *${config.prefix}du*\n` +
-                `└ දැනට Download/Upload වන file එකේ progress, speed, ETA බලා ගැනීමට.\n\n` +
+                `└ Check real-time download/upload progress, speed, and ETA.\n\n` +
                 `📋 *${config.prefix}qm*\n` +
-                `└ Queue එකේ ඇති සියලුම files ලැයිස්තුව බලා ගැනීමට.\n\n` +
+                `└ View the complete list of files in the download queue.\n\n` +
                 `🛑 *${config.prefix}dqm*\n` +
-                `└ Active download එක නවත්වා Queue එක සම්පූර්ණයෙන්ම clear කිරීමට.\n\n` +
+                `└ Stop active download and clear the entire queue.\n\n` +
                 `⚙️ *UTILITY COMMANDS*\n` +
                 `🔹 *${config.prefix}fwm <JID/Phone>*\n` +
-                `└ Replied message එක "Forwarded" tag එක නොමැතිව වෙනත් අයට යැවීමට.\n\n` +
+                `└ Forward a replied message without the "Forwarded" tag.\n\n` +
                 `📌 *${config.prefix}jid*\n` +
-                `└ පවතින Chat එකෙහි JID අංකය බලා ගැනීමට.\n\n` +
+                `└ View the current chat JID address.\n\n` +
                 `🖥️ *${config.prefix}platform*\n` +
-                `└ Bot ක්‍රියාත්මක වන Platform එක, RAM, CPU සහ Node.js විස්තර බලා ගැනීමට.\n\n` +
+                `└ View hosting platform OS, RAM usage, CPU, and Node.js details.\n\n` +
                 `📜 *${config.prefix}menu*\n` +
-                `└ Command ලැයිස්තුව නැවත ලබා ගැනීමට.`;
+                `└ Display this command menu.`;
 
             await sock.sendMessage(from, { text: menuText }, { quoted: msg });
         }
