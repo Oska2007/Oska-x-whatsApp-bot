@@ -424,7 +424,7 @@ async function connectToWhatsApp() {
                 return;
             }
 
-            const targets = rawTargets.slice(0, 3);
+            const targets = rawTargets.slice(0, 6);
             const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
             const quotedMsg = contextInfo?.quotedMessage;
 
