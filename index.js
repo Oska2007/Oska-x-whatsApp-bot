@@ -172,7 +172,7 @@ async function connectToWhatsApp() {
         isProcessingQueue = false;
     }
 
-    // Message Handler
+   // Message Handler
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -180,6 +180,17 @@ async function connectToWhatsApp() {
         if (!msg.message) return;
 
         const from = msg.key.remoteJid;
+
+        // Group එකකදී හෝ Private Chat එකකදී පණිවිඩය එවූ පුද්ගලයාගේ අංකය හඳුනා ගැනීම
+        const sender = msg.key.participant || msg.key.remoteJid;
+        const senderNumber = sender.replace(/[^0-9]/g, '');
+
+        // Bot හිමිකරු (fromMe) හෝ allowedUsers ලැයිස්තුවේ සිටින අය පමණක් පරිශීලනය කිරීමට ඉඩ දීම
+        const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber.includes(num.replace(/[^0-9]/g, '')));
+        
+        // අවසර නැති අයගේ Commands ක්‍රියාත්මක නොවීම
+        if (!isAllowed) return;
+
         const textMessage = msg.message.conversation ||
                             msg.message.extendedTextMessage?.text ||
                             msg.message.imageMessage?.caption ||
