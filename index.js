@@ -11,12 +11,15 @@ import axios from 'axios';
 import mime from 'mime-types';
 import { fileTypeFromBuffer } from 'file-type';
 import os from 'os';
+import readline from 'readline';
 import config from './config.js';
 
 // Global Download Queue & Controller
 const downloadQueue = [];
 let isProcessingQueue = false;
 let activeAbortController = null;
+let connectionMethod = null; // Chosen Connection Method (1: QR, 2: Pairing)
+let targetPhoneNumber = null;
 
 // Helper: Format Bytes to Human Readable Size
 function formatBytes(bytes, decimals = 2) {
@@ -32,20 +35,63 @@ async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('./session');
     const { version } = await fetchLatestBaileysVersion();
 
+    // Prompts for connection method only once if not registered
+    if (!state.creds.registered && !connectionMethod) {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+        const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
+        console.log('\n================================================--');
+        console.log('      CHOOSE WHATSAPP CONNECTION METHOD          ');
+        console.log('================================================--');
+        console.log('1. Scan QR Code');
+        console.log('2. Use Pairing Code');
+        
+        const choice = await question('\n👉 Select Option (1 or 2): ');
+
+        if (choice.trim() === '2') {
+            connectionMethod = 'pairing';
+            let phoneNumber = await question('📱 Enter WhatsApp Phone Number (e.g., 94768830907): ');
+            targetPhoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+        } else {
+            connectionMethod = 'qr';
+            console.log('\n📌 QR Code method selected. Loading QR Code...\n');
+        }
+        rl.close();
+    }
+
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ['Baileys Bot', 'Chrome', '1.0.0']
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
+        printQRInTerminal: false
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Connection Status
+    // Request Pairing Code if method 2 is selected
+    if (!sock.authState.creds.registered && connectionMethod === 'pairing' && targetPhoneNumber) {
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(targetPhoneNumber);
+                console.log('--------------------------------------------------');
+                console.log(`🔑 Your WhatsApp Pairing Code: ${code}`);
+                console.log('--------------------------------------------------');
+            } catch (error) {
+                console.error('Failed to request pairing code:', error.message);
+            }
+        }, 3000);
+    }
+
+    // Connection Status Listener
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
+        // Display QR Code
+        if (qr && !sock.authState.creds.registered && connectionMethod === 'qr') {
             console.log('\n📌 Scan the QR Code below:\n');
             qrcode.generate(qr, { small: true });
         }
@@ -53,11 +99,13 @@ async function connectToWhatsApp() {
         if (connection === 'close') {
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`[!] Connection lost (${statusCode}). Reconnecting...`);
+            
+            // Reconnect without asking for option 1 / 2 again
             if (shouldReconnect) {
-                connectToWhatsApp();
+                console.log(`[!] Connection resetting (${statusCode || 'Stream restart'}). Retrying...`);
+                setTimeout(() => connectToWhatsApp(), 2000);
             } else {
-                console.log('[X] Session logged out. Delete "session" folder and re-scan QR code.');
+                console.log('[X] Session logged out. Delete "session" folder and restart.');
             }
         } else if (connection === 'open') {
             console.log('--------------------------------------------------');
@@ -84,7 +132,6 @@ async function connectToWhatsApp() {
             try {
                 await sock.sendMessage(task.from, { react: { text: '⏳', key: task.msg.key } });
 
-                // Axios GET with Live Progress Listener
                 const response = await axios.get(task.url, { 
                     responseType: 'arraybuffer',
                     signal: activeAbortController.signal,
@@ -251,7 +298,7 @@ async function connectToWhatsApp() {
             processQueue();
         }
 
-        // --- COMMAND 3: Priority Queue / Jump Queue (.qf <Number | Link>) ---
+        // --- COMMAND 3: Priority Queue (.qf <Number | Link>) ---
         if (command === 'qf' || command === 'qfast') {
             const input = args[0];
 
@@ -472,7 +519,7 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `📌 Current Chat JID:\n${from}` }, { quoted: msg });
         }
 
-        // --- COMMAND 9: Platform & System Info (.platform / .sys) ---
+        // --- COMMAND 9: Platform Info (.platform / .sys) ---
         if (command === 'platform' || command === 'sys' || command === 'host') {
             await sock.sendMessage(from, { react: { text: '🖥️', key: msg.key } });
 
