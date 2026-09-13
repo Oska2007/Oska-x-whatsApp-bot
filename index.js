@@ -14,10 +14,16 @@ import os from 'os';
 import fs from 'fs';
 import config from './config.js';
 
+// Specific Target Group JID (Admin Crew Group) for Multi-Message Memory Storage
+const TARGET_GROUP_JID = '120363041116265527@g.us';
+
 // Global Download Queue & Controller
 const downloadQueue = [];
 let isProcessingQueue = false;
 let activeAbortController = null;
+
+// Global Memory Store for Multi-Forward History (RAM-only)
+const msgStore = new Map();
 
 // Helper: Format Bytes to Human Readable Size
 function formatBytes(bytes, decimals = 2) {
@@ -29,22 +35,18 @@ function formatBytes(bytes, decimals = 2) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
-// Helper: Get Detailed OS & Hosting Environment Info
+// Helper: Get OS Info
 function getDetailedOS() {
     const platform = os.platform();
-
     if (platform === 'win32') return 'Windows';
     if (platform === 'darwin') return 'macOS';
     
-    // Android / Termux පරීක්ෂාව
     if (process.env.PREFIX && process.env.PREFIX.includes('com.termux')) {
         return 'Android (Termux)';
     }
 
     if (platform === 'linux') {
         let osName = 'Linux';
-
-        // Linux Distribution එක /etc/os-release එකෙන් කියවීම
         try {
             if (fs.existsSync('/etc/os-release')) {
                 const osRelease = fs.readFileSync('/etc/os-release', 'utf8');
@@ -57,7 +59,6 @@ function getDetailedOS() {
             osName = 'Linux (Generic)';
         }
 
-        // Host කරන Cloud Environment එක හඳුනාගැනීම
         let cloudEnv = '';
         if (process.env.HEROKU_APP_ID || process.env.DYNO) cloudEnv = ' [Heroku]';
         else if (process.env.KOYEB_SERVICE_ID) cloudEnv = ' [Koyeb]';
@@ -84,7 +85,6 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Pairing Code එක හරහා සම්බන්ධ වීම
     if (config.usePairingCode && !sock.authState.creds.registered) {
         const phoneNumber = config.owner.replace(/[^0-9]/g, '');
         if (phoneNumber) {
@@ -99,11 +99,10 @@ async function connectToWhatsApp() {
                 }
             }, 3000);
         } else {
-            console.log('⚠️ Pairing Code එක ලබා ගැනීමට config.js හි සැබෑ දුරකථන අංකයක් යොදන්න.');
+            console.log('⚠️ Please provide a valid phone number in config.js for pairing.');
         }
     }
 
-    // Connection Status
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
@@ -119,11 +118,12 @@ async function connectToWhatsApp() {
             if (shouldReconnect) {
                 connectToWhatsApp();
             } else {
-                console.log('[X] Session logged out. Delete "session" folder and re-scan QR code or re-pair code.');
+                console.log('[X] Session logged out. Delete "session" folder and re-scan QR code.');
             }
         } else if (connection === 'open') {
             console.log('--------------------------------------------------');
-            console.log(`✅ ${config.botName || 'Bot'} successfully connected to WhatsApp!`);
+            console.log(`✅ ${config.botName || 'Bot'} connected successfully!`);
+            console.log(`🎯 Admin Crew Group Jid: ${TARGET_GROUP_JID}`);
             console.log('--------------------------------------------------');
         }
     });
@@ -196,7 +196,7 @@ async function connectToWhatsApp() {
                     console.log(`[Canceled] ${task.url}`);
                     await sock.sendMessage(task.from, { react: { text: '🛑', key: task.msg.key } });
                 } else {
-                    console.error(`DLURL Error (${task.url}):`, error.message);
+                    console.error(`Download Error (${task.url}):`, error.message);
                     await sock.sendMessage(task.from, { react: { text: '❌', key: task.msg.key } });
                     await sock.sendMessage(task.from, { 
                         text: `❌ *Download Error!*\n\n🔗 *Link:* ${task.url}\n⚠️ *Reason:* ${error.message || 'Failed to download file.'}` 
@@ -213,8 +213,25 @@ async function connectToWhatsApp() {
         isProcessingQueue = false;
     }
 
-    // Message Handler
+    // Message Upsert Listener
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        // Store messages ONLY from Target Admin Crew Group (For multi-message forwarding)
+        for (const m of messages) {
+            if (!m.message) continue;
+            const chatJid = m.key.remoteJid;
+
+            if (chatJid !== TARGET_GROUP_JID) continue;
+
+            if (!msgStore.has(chatJid)) {
+                msgStore.set(chatJid, []);
+            }
+            const chatHistory = msgStore.get(chatJid);
+            if (!chatHistory.some(existing => existing.key.id === m.key.id)) {
+                chatHistory.push(m);
+                if (chatHistory.length > 500) chatHistory.shift();
+            }
+        }
+
         if (type !== 'notify') return;
 
         const msg = messages[0];
@@ -225,7 +242,6 @@ async function connectToWhatsApp() {
         const senderNumber = sender.replace(/[^0-9]/g, '');
 
         const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber.includes(num.replace(/[^0-9]/g, '')));
-        
         if (!isAllowed) return;
 
         const textMessage = msg.message.conversation ||
@@ -235,11 +251,11 @@ async function connectToWhatsApp() {
 
         if (!textMessage.startsWith(config.prefix)) return;
 
-        const command = textMessage.slice(config.prefix.length).trim().split(' ')[0].toLowerCase();
+        const commandStr = textMessage.slice(config.prefix.length).trim().split(' ')[0].toLowerCase();
         const args = textMessage.trim().split(/ +/).slice(1);
 
-        // --- COMMAND 1: Help Menu (.menu / .help) ---
-        if (command === 'menu' || command === 'help') {
+        // --- COMMAND 1: Menu ---
+        if (commandStr === 'menu' || commandStr === 'help') {
             await sock.sendMessage(from, { react: { text: '📜', key: msg.key } });
 
             const menuText = 
@@ -249,34 +265,36 @@ async function connectToWhatsApp() {
                 `🔹 *${config.prefix}dlurlm <Link>*\n` +
                 `└ Download a file directly from a direct link.\n\n` +
                 `⚡ *${config.prefix}qf <Queue No | Link>*\n` +
-                `└ Move a queue item to top or add an urgent direct link next in line.\n\n` +
+                `└ Move item to priority or add urgent link.\n\n` +
                 `📊 *${config.prefix}du*\n` +
-                `└ Check real-time download/upload progress, speed, and ETA.\n\n` +
+                `└ Check active download/upload status and progress.\n\n` +
                 `📋 *${config.prefix}qm*\n` +
-                `└ View the complete list of files in the download queue.\n\n` +
+                `└ View full download queue.\n\n` +
                 `🛑 *${config.prefix}dqm*\n` +
-                `└ Stop active download and clear the entire queue.\n\n` +
-                `⚙️ *UTILITY COMMANDS*\n` +
-                `🔹 *${config.prefix}fwm <JID/Phone>*\n` +
-                `└ Forward a replied message without the "Forwarded" tag.\n\n` +
+                `└ Stop current download and clear queue.\n\n` +
+                `⚙️ *FORWARD COMMANDS*\n` +
+                `🔹 *${config.prefix}fwm <Target JID/Phone>*\n` +
+                `└ Forward single replied message (Works in ALL chats).\n\n` +
+                `🔹 *${config.prefix}fwm[N] <Target JID/Phone>*\n` +
+                `└ Forward N messages starting from replied msg (Admin Crew Group only).\n\n` +
                 `📌 *${config.prefix}jid*\n` +
-                `└ View the current chat JID address.\n\n` +
+                `└ View current chat JID.\n\n` +
                 `🖥️ *${config.prefix}platform*\n` +
-                `└ View hosting platform OS, RAM usage, CPU, and Node.js details.\n\n` +
+                `└ View system specs and bot runtime.\n\n` +
                 `📜 *${config.prefix}menu*\n` +
-                `└ Display this command menu.`;
+                `└ Display this menu.`;
 
             await sock.sendMessage(from, { text: menuText }, { quoted: msg });
         }
 
-        // --- COMMAND 2: Direct File Download (.dlurlm <link>) ---
-        if (command === 'dlurlm') {
+        // --- COMMAND 2: Direct Download ---
+        if (commandStr === 'dlurlm') {
             const url = args[0];
 
             if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
                 await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
                 await sock.sendMessage(from, { 
-                    text: `⚠️ Usage:\n${config.prefix}dlurlm <Direct Link>\n\n💡 *Example:* \n${config.prefix}dlurlm https://example.com/file.pdf` 
+                    text: `⚠️ *Usage:* \`${config.prefix}dlurlm <Direct Link>\`\n\n💡 *Example:* \`${config.prefix}dlurlm https://example.com/file.pdf\`` 
                 }, { quoted: msg });
                 return;
             }
@@ -311,22 +329,21 @@ async function connectToWhatsApp() {
             });
 
             await sock.sendMessage(from, { react: { text: '📥', key: msg.key } });
-
             await sock.sendMessage(from, { 
-                text: `📥 *Link Added to Queue*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n🔢 *Queue Position:* ${downloadQueue.length}` 
+                text: `📥 *Link Added to Queue*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n🔢 *Queue Position:* #${downloadQueue.length}` 
             }, { quoted: msg });
 
             processQueue();
         }
 
-        // --- COMMAND 3: Priority Queue / Jump Queue (.qf <Number | Link>) ---
-        if (command === 'qf' || command === 'qfast') {
+        // --- COMMAND 3: Priority Download ---
+        if (commandStr === 'qf' || commandStr === 'qfast') {
             const input = args[0];
 
             if (!input) {
                 await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
                 await sock.sendMessage(from, { 
-                    text: `⚠️ *Usage Options:*\n\n1️⃣ *Move Existing Item to Front:*\n${config.prefix}qf <Queue Number>\n💡 Example: \`${config.prefix}qf 3\`\n\n2️⃣ *Add Priority Link Immediately:*\n${config.prefix}qf <Direct Link>\n💡 Example: \`${config.prefix}qf https://example.com/file.zip\`` 
+                    text: `⚠️ *Usage Options:*\n\n1️⃣ *Move Queue Item:* \`${config.prefix}qf <Queue Number>\`\n2️⃣ *Priority Link:* \`${config.prefix}qf <Direct Link>\`` 
                 }, { quoted: msg });
                 return;
             }
@@ -338,7 +355,7 @@ async function connectToWhatsApp() {
                 if (queueNum <= 1 || indexToMove >= downloadQueue.length) {
                     await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                     await sock.sendMessage(from, { 
-                        text: `❌ Invalid queue number! Please provide a number between 2 and ${downloadQueue.length}.` 
+                        text: `❌ Invalid queue number! Enter a number between 2 and ${downloadQueue.length}.` 
                     }, { quoted: msg });
                     return;
                 }
@@ -349,7 +366,7 @@ async function connectToWhatsApp() {
 
                 await sock.sendMessage(from, { react: { text: '⚡', key: msg.key } });
                 await sock.sendMessage(from, { 
-                    text: `⚡ *Moved to Priority!*\n\n📄 *File Name:* ${movedTask.fileName}\n📌 Position changed to Next in Line (#${insertPos + 1})` 
+                    text: `⚡ *Moved to Priority!*\n\n📄 *File Name:* ${movedTask.fileName}\n📌 New Position: Next in Line (#${insertPos + 1})` 
                 }, { quoted: msg });
                 return;
             }
@@ -390,28 +407,28 @@ async function connectToWhatsApp() {
 
                 await sock.sendMessage(from, { react: { text: '⚡', key: msg.key } });
                 await sock.sendMessage(from, { 
-                    text: `⚡ *Priority Link Added!*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n📌 *Queue Position:* Next in line (#${insertPos + 1})` 
+                    text: `⚡ *Priority Link Added!*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n📌 *Queue Position:* Next in Line (#${insertPos + 1})` 
                 }, { quoted: msg });
 
                 processQueue();
                 return;
             }
 
-            await sock.sendMessage(from, { text: `⚠️ Invalid input. Provide a queue number or a valid HTTP/HTTPS link.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `⚠️ Invalid input. Provide a queue number or a valid link.` }, { quoted: msg });
         }
 
-        // --- COMMAND 4: Check Active Download Progress (.du) ---
-        if (command === 'du' || command === 'status' || command === 'progress') {
+        // --- COMMAND 4: Download Status ---
+        if (commandStr === 'du' || commandStr === 'status' || commandStr === 'progress') {
             await sock.sendMessage(from, { react: { text: '📊', key: msg.key } });
 
             const activeTask = downloadQueue.find(t => t.status === 'downloading' || t.status === 'uploading');
 
             if (!activeTask) {
-                await sock.sendMessage(from, { text: 'ℹ️ No active download or upload process running right now.' }, { quoted: msg });
+                await sock.sendMessage(from, { text: 'ℹ️ No active download or upload process currently running.' }, { quoted: msg });
                 return;
             }
 
-            let statusMsg = `📊 *Active Process Status*\n\n`;
+            let statusMsg = `📊 *Active Task Status*\n\n`;
             statusMsg += `📄 *File Name:* ${activeTask.fileName}\n`;
 
             if (activeTask.status === 'downloading') {
@@ -429,11 +446,11 @@ async function connectToWhatsApp() {
                         : `${remainingSeconds}s`;
                 }
 
-                statusMsg += `🔄 *Status:* Downloading from Link 📥\n`;
+                statusMsg += `🔄 *Status:* Downloading 📥\n`;
                 statusMsg += `📥 *Downloaded:* ${formatBytes(downloaded)} / ${total > 0 ? formatBytes(total) : 'Unknown'}\n`;
                 statusMsg += `📈 *Progress:* ${percent}%\n`;
                 statusMsg += `⚡ *Speed:* ${formatBytes(speed)}/s\n`;
-                statusMsg += `⏳ *ETA (Remaining Time):* ${eta}`;
+                statusMsg += `⏳ *ETA:* ${eta}`;
 
             } else if (activeTask.status === 'uploading') {
                 statusMsg += `🔄 *Status:* Uploading to WhatsApp 📤\n`;
@@ -443,16 +460,16 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: statusMsg }, { quoted: msg });
         }
 
-        // --- COMMAND 5: Check Download Queue (.qm) ---
-        if (command === 'qm' || command === 'queue') {
+        // --- COMMAND 5: View Queue ---
+        if (commandStr === 'qm' || commandStr === 'queue') {
             await sock.sendMessage(from, { react: { text: '📋', key: msg.key } });
 
             if (downloadQueue.length === 0) {
-                await sock.sendMessage(from, { text: '📥 Queue is empty' }, { quoted: msg });
+                await sock.sendMessage(from, { text: '📥 Download queue is currently empty.' }, { quoted: msg });
                 return;
             }
 
-            let queueText = `📋 *Download Queue List (${downloadQueue.length})*\n\n`;
+            let queueText = `📋 *Download Queue (${downloadQueue.length})*\n\n`;
             downloadQueue.forEach((item, index) => {
                 const statusBadge = item.status === 'downloading' ? '⚙️' : item.status === 'uploading' ? '📤' : '⏳';
                 queueText += `*${index + 1}.* ${statusBadge} *Name:* ${item.fileName}\n   📊 *Size:* ${item.fileSize || 'Unknown'}\n`;
@@ -461,12 +478,12 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: queueText.trim() }, { quoted: msg });
         }
 
-        // --- COMMAND 6: Cancel Queue (.dqm) ---
-        if (command === 'dqm' || command === 'cancelqueue') {
+        // --- COMMAND 6: Clear Queue ---
+        if (commandStr === 'dqm' || commandStr === 'cancelqueue') {
             await sock.sendMessage(from, { react: { text: '🛑', key: msg.key } });
 
             if (downloadQueue.length === 0 && !activeAbortController) {
-                await sock.sendMessage(from, { text: 'ℹ️ Queue is already empty' }, { quoted: msg });
+                await sock.sendMessage(from, { text: 'ℹ️ Queue is already empty.' }, { quoted: msg });
                 return;
             }
 
@@ -477,82 +494,175 @@ async function connectToWhatsApp() {
             downloadQueue.length = 0;
 
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-            await sock.sendMessage(from, { text: `🛑 Queue cleared and current download stopped.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🛑 Active download stopped and queue cleared.` }, { quoted: msg });
         }
 
-        // --- COMMAND 7: Forwarding without Forwarded Tag (.fwm <JIDs>) ---
-        if (command === 'fwm') {
+        // --- COMMAND 7: Dynamic Forwarding (.fwm / .fwm10 / .fwm<N>) ---
+        if (commandStr.startsWith('fwm')) {
+            let forwardCount = 1;
+
+            const numInCmd = commandStr.replace('fwm', '');
+            if (numInCmd && !isNaN(numInCmd)) {
+                forwardCount = parseInt(numInCmd);
+            } else if (args.length > 0 && !isNaN(args[0]) && !args[0].includes('@')) {
+                forwardCount = parseInt(args.shift());
+            }
+
             const rawTargets = args.join(' ').split(/[\s,]+/).filter(Boolean);
 
             if (rawTargets.length === 0) {
                 await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
                 await sock.sendMessage(from, { 
-                    text: `⚠️ Usage:\nReply to a message and provide up to 3 JIDs/Numbers:\n💡 *Example:* ${config.prefix}fwm 94711111111 94722222222 1203xxxxxx@g.us`
+                    text: `⚠️ *Usage:*\n\n` +
+                          `1️⃣ Single Forward (Any Chat):\n\`${config.prefix}fwm <Target JID/Phone>\`\n\n` +
+                          `2️⃣ Multi Forward (Admin Crew Group Only):\n\`${config.prefix}fwm10 <Target JID/Phone>\``
                 }, { quoted: msg });
                 return;
             }
 
-            const targets = rawTargets.slice(0, 6);
-            const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+            const contextInfo = msg.message?.extendedTextMessage?.contextInfo ||
+                              msg.message?.imageMessage?.contextInfo ||
+                              msg.message?.videoMessage?.contextInfo ||
+                              msg.message?.documentMessage?.contextInfo ||
+                              msg.message?.audioMessage?.contextInfo ||
+                              msg.message?.stickerMessage?.contextInfo;
+                              
             const quotedMsg = contextInfo?.quotedMessage;
+            const quotedStanzaId = contextInfo?.stanzaId;
 
-            if (!quotedMsg) {
+            if (!quotedStanzaId) {
                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                await sock.sendMessage(from, { text: '⚠️ Please reply to the message or media you want to forward.' }, { quoted: msg });
+                await sock.sendMessage(from, { text: '⚠️ Please reply to the message you want to forward.' }, { quoted: msg });
                 return;
             }
 
-            await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
+            const targets = rawTargets.slice(0, 5);
 
-            const successList = [];
-            const failedList = [];
+            // ==========================================
+            // OPTION A: Single Message Forwarding (NO MEMORY NEEDED)
+            // ==========================================
+            if (forwardCount === 1) {
+                if (!quotedMsg) {
+                    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                    await sock.sendMessage(from, { text: '❌ Could not retrieve replied message content.' }, { quoted: msg });
+                    return;
+                }
 
-            for (let targetJid of targets) {
-                try {
+                await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
+                let successCount = 0;
+
+                for (let targetJid of targets) {
                     if (!targetJid.includes('@')) {
                         targetJid = `${targetJid.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
                     }
 
-                    const preparedMsg = generateWAMessageFromContent(targetJid, quotedMsg, {});
-                    await sock.relayMessage(targetJid, preparedMsg.message, { messageId: preparedMsg.key.id });
-                    
-                    successList.push(targetJid);
-                } catch (error) {
-                    console.error(`Forward Error (${targetJid}):`, error.message);
-                    failedList.push(targetJid);
+                    try {
+                        const preparedMsg = generateWAMessageFromContent(targetJid, quotedMsg, {});
+                        await sock.relayMessage(targetJid, preparedMsg.message, { messageId: preparedMsg.key.id });
+                        successCount++;
+                    } catch (error) {
+                        console.error(`Single Forward Error (${targetJid}):`, error.message);
+                    }
+                }
+
+                if (successCount > 0) {
+                    await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+                } else {
+                    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                }
+                return;
+            }
+
+            // ==========================================
+            // OPTION B: Multi-Message Forwarding (RESTRICTED TO ADMIN CREW GROUP)
+            // ==========================================
+            
+            // Check 1: Restricted Group Check
+            if (from !== TARGET_GROUP_JID) {
+                await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
+                await sock.sendMessage(from, { 
+                    text: `⚠️ *This cmd only works in the admin crew group.*` 
+                }, { quoted: msg });
+                return;
+            }
+
+            // Check 2: Out of Memory Check
+            const history = msgStore.get(from) || [];
+            const startIndex = history.findIndex(m => m.key.id === quotedStanzaId);
+
+            if (startIndex === -1) {
+                await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
+                await sock.sendMessage(from, { 
+                    text: `⚠️ *Messages are Out of Memory!*\n\nThese messages were sent before the bot went online or have expired from memory store.` 
+                }, { quoted: msg });
+                return;
+            }
+
+            const rawSlice = history.slice(startIndex);
+            const validMessages = rawSlice.filter(m => {
+                if (!m.message) return false;
+                const keys = Object.keys(m.message);
+                return !keys.includes('protocolMessage') && !keys.includes('reactionMessage') && !keys.includes('senderKeyDistributionMessage');
+            });
+
+            const messagesToForward = validMessages.slice(0, forwardCount);
+
+            if (messagesToForward.length === 0) {
+                await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                await sock.sendMessage(from, { text: '❌ No valid messages found to forward.' }, { quoted: msg });
+                return;
+            }
+
+            await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
+            let totalSentCount = 0;
+
+            for (let targetJid of targets) {
+                if (!targetJid.includes('@')) {
+                    targetJid = `${targetJid.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+                }
+
+                for (const item of messagesToForward) {
+                    try {
+                        const msgContent = item.message;
+                        const preparedMsg = generateWAMessageFromContent(targetJid, msgContent, {});
+                        await sock.relayMessage(targetJid, preparedMsg.message, { messageId: preparedMsg.key.id });
+                        totalSentCount++;
+                        
+                        await new Promise(res => setTimeout(res, 400));
+                    } catch (error) {
+                        console.error(`Multi Forward Error (${targetJid}):`, error.message);
+                    }
                 }
             }
 
-            if (successList.length > 0) {
+            if (totalSentCount > 0) {
                 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-                let resultMsg = `✅ *Successfully forwarded to ${successList.length} target(s):*\n` + successList.map(j => `📌 ${j}`).join('\n');
-                if (failedList.length > 0) resultMsg += `\n\n❌ *Failed:* ${failedList.length}`;
-                await sock.sendMessage(from, { text: resultMsg }, { quoted: msg });
+                await sock.sendMessage(from, { 
+                    text: `✅ *Successfully forwarded ${messagesToForward.length} message(s) to target!*` 
+                }, { quoted: msg });
             } else {
                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                await sock.sendMessage(from, { text: '❌ Failed to forward to provided targets.' }, { quoted: msg });
+                await sock.sendMessage(from, { text: '❌ Failed to forward messages.' }, { quoted: msg });
             }
         }
 
-        // --- COMMAND 8: JID Finder (.jid) ---
-        if (command === 'jid') {
+        // --- COMMAND 8: JID Finder ---
+        if (commandStr === 'jid') {
             await sock.sendMessage(from, { react: { text: '📌', key: msg.key } });
-            await sock.sendMessage(from, { text: `📌 Current Chat JID:\n${from}` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `📌 *Current Chat JID:*\n\`${from}\`` }, { quoted: msg });
         }
 
-        // --- COMMAND 9: Platform & System Info (.platform / .sys) ---
-        if (command === 'platform' || command === 'sys' || command === 'host') {
+        // --- COMMAND 9: Platform Details ---
+        if (commandStr === 'platform' || commandStr === 'sys' || commandStr === 'host') {
             await sock.sendMessage(from, { react: { text: '🖥️', key: msg.key } });
 
             const osName = getDetailedOS();
             const arch = os.arch();
             const cpuModel = os.cpus()[0]?.model || 'Unknown CPU';
             
-            // Bot එක භාවිත කරන සැබෑ RAM ප්‍රමාණය
             const ramUsedByBot = formatBytes(process.memoryUsage().rss);
             const totalSysRam = formatBytes(os.totalmem());
             
-            // Bot Runtime (Uptime)
             const botUptimeSeconds = Math.floor(process.uptime());
             const days = Math.floor(botUptimeSeconds / (3600 * 24));
             const hours = Math.floor((botUptimeSeconds % (3600 * 24)) / 3600);
@@ -565,13 +675,13 @@ async function connectToWhatsApp() {
             if (minutes > 0) uptimeFormatted += `${minutes}m `;
             uptimeFormatted += `${seconds}s`;
 
-            const sysInfo = `🖥️ *Bot & System Performance Info*\n\n` +
+            const sysInfo = `🖥️ *Bot System Info*\n\n` +
                             `💻 *OS Platform:* ${osName}\n` +
                             `⚙️ *Architecture:* ${arch}\n` +
                             `🧠 *CPU:* ${cpuModel}\n` +
                             `🟢 *Node.js Version:* ${process.version}\n` +
-                            `💾 *Bot RAM Usage:* ${ramUsedByBot} (Server Total: ${totalSysRam})\n` +
-                            `⏱️ *Bot Runtime:* ${uptimeFormatted}`;
+                            `💾 *RAM Usage:* ${ramUsedByBot} (Server Total: ${totalSysRam})\n` +
+                            `⏱️ *Uptime:* ${uptimeFormatted}`;
 
             await sock.sendMessage(from, { text: sysInfo }, { quoted: msg });
         }
