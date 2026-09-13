@@ -576,15 +576,17 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: sysInfo }, { quoted: msg });
         }
 
-        // --- COMMAND 10: Remote Bot Restart (.restart / .reboot) ---
-        if (command === 'restart' || command === 'reboot') {
-            await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
-            await sock.sendMessage(from, { text: `🔄 *Restarting Bot...*\n\n⏳ Please wait a few seconds while the bot reboots.` }, { quoted: msg });
+       // --- COMMAND 10: Remote Bot Restart (.restart / .reboot) ---
+if (command === 'restart' || command === 'reboot') {
+    await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
+    await sock.sendMessage(from, { text: `🔄 *Restarting Bot Connection...*\n\n⏳ Please wait a few seconds.` }, { quoted: msg });
 
-            setTimeout(() => {
-                process.exit(0);
-            }, 1000);
-        }
+    setTimeout(async () => {
+        sock.ev.removeAllListeners(); // පරණ connection එකේ listeners ඉවත් කිරීම
+        await sock.end(); // WhatsApp Connection එක පමණක් Close කිරීම
+        connectToWhatsApp(); // නැවත Fresh Connection එකක් ආරම්භ කිරීම
+    }, 1000);
+}
     });
 }
 
