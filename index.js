@@ -263,8 +263,6 @@ async function connectToWhatsApp() {
                 `└ View the current chat JID address.\n\n` +
                 `🖥️ *${config.prefix}platform*\n` +
                 `└ View hosting platform OS, RAM usage, CPU, and Node.js details.\n\n` +
-                `🔄 *${config.prefix}restart*\n` +
-                `└ Restart the bot remotely.\n\n` +
                 `📜 *${config.prefix}menu*\n` +
                 `└ Display this command menu.`;
 
@@ -550,9 +548,11 @@ async function connectToWhatsApp() {
             const arch = os.arch();
             const cpuModel = os.cpus()[0]?.model || 'Unknown CPU';
             
+            // Bot එක භාවිත කරන සැබෑ RAM ප්‍රමාණය
             const ramUsedByBot = formatBytes(process.memoryUsage().rss);
             const totalSysRam = formatBytes(os.totalmem());
             
+            // Bot Runtime (Uptime)
             const botUptimeSeconds = Math.floor(process.uptime());
             const days = Math.floor(botUptimeSeconds / (3600 * 24));
             const hours = Math.floor((botUptimeSeconds % (3600 * 24)) / 3600);
@@ -575,18 +575,6 @@ async function connectToWhatsApp() {
 
             await sock.sendMessage(from, { text: sysInfo }, { quoted: msg });
         }
-
-       // --- COMMAND 10: Remote Bot Restart (.restart / .reboot) ---
-if (command === 'restart' || command === 'reboot') {
-    await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
-    await sock.sendMessage(from, { text: `🔄 *Restarting Bot Connection...*\n\n⏳ Please wait a few seconds.` }, { quoted: msg });
-
-    setTimeout(async () => {
-        sock.ev.removeAllListeners(); // පරණ connection එකේ listeners ඉවත් කිරීම
-        await sock.end(); // WhatsApp Connection එක පමණක් Close කිරීම
-        connectToWhatsApp(); // නැවත Fresh Connection එකක් ආරම්භ කිරීම
-    }, 1000);
-}
     });
 }
 
