@@ -11,6 +11,7 @@ import axios from 'axios';
 import mime from 'mime-types';
 import { fileTypeFromBuffer } from 'file-type';
 import os from 'os';
+import fs from 'fs';
 import config from './config.js';
 
 // Global Download Queue & Controller
@@ -26,6 +27,48 @@ function formatBytes(bytes, decimals = 2) {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+// Helper: Get Detailed OS & Hosting Environment Info
+function getDetailedOS() {
+    const platform = os.platform();
+
+    if (platform === 'win32') return 'Windows';
+    if (platform === 'darwin') return 'macOS';
+    
+    // Android / Termux පරීක්ෂාව
+    if (process.env.PREFIX && process.env.PREFIX.includes('com.termux')) {
+        return 'Android (Termux)';
+    }
+
+    if (platform === 'linux') {
+        let osName = 'Linux';
+
+        // Linux Distribution එක /etc/os-release එකෙන් කියවීම
+        try {
+            if (fs.existsSync('/etc/os-release')) {
+                const osRelease = fs.readFileSync('/etc/os-release', 'utf8');
+                const match = osRelease.match(/^PRETTY_NAME="(.*)"$/m) || osRelease.match(/^NAME="(.*)"$/m);
+                if (match && match[1]) {
+                    osName = match[1].replace(/["']/g, '');
+                }
+            }
+        } catch (e) {
+            osName = 'Linux (Generic)';
+        }
+
+        // Host කරන Cloud Environment එක හඳුනාගැනීම
+        let cloudEnv = '';
+        if (process.env.HEROKU_APP_ID || process.env.DYNO) cloudEnv = ' [Heroku]';
+        else if (process.env.KOYEB_SERVICE_ID) cloudEnv = ' [Koyeb]';
+        else if (process.env.RENDER_SERVICE_ID) cloudEnv = ' [Render]';
+        else if (process.env.RAILWAY_SERVICE_ID) cloudEnv = ' [Railway]';
+        else if (fs.existsSync('/.dockerenv')) cloudEnv = ' [Docker Container]';
+
+        return `${osName}${cloudEnv}`;
+    }
+
+    return platform;
 }
 
 async function connectToWhatsApp() {
@@ -64,7 +107,6 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // QR Code එක Terminal එකේ පෙන්වීම (usePairingCode false නම් හෝ pairing code එකක් නැත්නම්)
         if (qr && !config.usePairingCode) {
             console.log('\n📌 Scan the QR Code below:\n');
             qrcode.generate(qr, { small: true });
@@ -104,7 +146,6 @@ async function connectToWhatsApp() {
             try {
                 await sock.sendMessage(task.from, { react: { text: '⏳', key: task.msg.key } });
 
-                // Axios GET with Live Progress Listener
                 const response = await axios.get(task.url, { 
                     responseType: 'arraybuffer',
                     signal: activeAbortController.signal,
@@ -172,7 +213,7 @@ async function connectToWhatsApp() {
         isProcessingQueue = false;
     }
 
-   // Message Handler
+    // Message Handler
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -180,15 +221,11 @@ async function connectToWhatsApp() {
         if (!msg.message) return;
 
         const from = msg.key.remoteJid;
-
-        // Group එකකදී හෝ Private Chat එකකදී පණිවිඩය එවූ පුද්ගලයාගේ අංකය හඳුනා ගැනීම
         const sender = msg.key.participant || msg.key.remoteJid;
         const senderNumber = sender.replace(/[^0-9]/g, '');
 
-        // Bot හිමිකරු (fromMe) හෝ allowedUsers ලැයිස්තුවේ සිටින අය පමණක් පරිශීලනය කිරීමට ඉඩ දීම
         const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber.includes(num.replace(/[^0-9]/g, '')));
         
-        // අවසර නැති අයගේ Commands ක්‍රියාත්මක නොවීම
         if (!isAllowed) return;
 
         const textMessage = msg.message.conversation ||
@@ -507,24 +544,34 @@ async function connectToWhatsApp() {
         if (command === 'platform' || command === 'sys' || command === 'host') {
             await sock.sendMessage(from, { react: { text: '🖥️', key: msg.key } });
 
-            const platform = os.platform();
-            let osName = platform;
-            if (platform === 'win32') osName = 'Windows';
-            else if (platform === 'linux') osName = 'Linux (Ubuntu/Debian/VPS)';
-            else if (platform === 'darwin') osName = 'macOS';
-            else if (platform === 'android') osName = 'Android (Termux)';
-
+            const osName = getDetailedOS();
             const arch = os.arch();
-            const totalMem = formatBytes(os.totalmem());
-            const freeMem = formatBytes(os.freemem());
-            const uptimeHours = (os.uptime() / 3600).toFixed(1);
+            const cpuModel = os.cpus()[0]?.model || 'Unknown CPU';
+            
+            // Bot එක භාවිත කරන සැබෑ RAM ප්‍රමාණය
+            const ramUsedByBot = formatBytes(process.memoryUsage().rss);
+            const totalSysRam = formatBytes(os.totalmem());
+            
+            // Bot Runtime (Uptime)
+            const botUptimeSeconds = Math.floor(process.uptime());
+            const days = Math.floor(botUptimeSeconds / (3600 * 24));
+            const hours = Math.floor((botUptimeSeconds % (3600 * 24)) / 3600);
+            const minutes = Math.floor((botUptimeSeconds % 3600) / 60);
+            const seconds = botUptimeSeconds % 60;
+            
+            let uptimeFormatted = '';
+            if (days > 0) uptimeFormatted += `${days}d `;
+            if (hours > 0) uptimeFormatted += `${hours}h `;
+            if (minutes > 0) uptimeFormatted += `${minutes}m `;
+            uptimeFormatted += `${seconds}s`;
 
-            const sysInfo = `🖥️ *Bot Hosting Platform Info*\n\n` +
+            const sysInfo = `🖥️ *Bot & System Performance Info*\n\n` +
                             `💻 *OS Platform:* ${osName}\n` +
                             `⚙️ *Architecture:* ${arch}\n` +
+                            `🧠 *CPU:* ${cpuModel}\n` +
                             `🟢 *Node.js Version:* ${process.version}\n` +
-                            `💾 *RAM Usage:* ${freeMem} Free / ${totalMem} Total\n` +
-                            `⏱️ *System Uptime:* ${uptimeHours} Hours`;
+                            `💾 *Bot RAM Usage:* ${ramUsedByBot} (Server Total: ${totalSysRam})\n` +
+                            `⏱️ *Bot Runtime:* ${uptimeFormatted}`;
 
             await sock.sendMessage(from, { text: sysInfo }, { quoted: msg });
         }
