@@ -504,8 +504,7 @@ async function connectToWhatsApp() {
 
             await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
 
-            const successList = [];
-            const failedList = [];
+            let hasSuccess = false;
 
             for (let targetJid of targets) {
                 try {
@@ -516,21 +515,16 @@ async function connectToWhatsApp() {
                     const preparedMsg = generateWAMessageFromContent(targetJid, quotedMsg, {});
                     await sock.relayMessage(targetJid, preparedMsg.message, { messageId: preparedMsg.key.id });
                     
-                    successList.push(targetJid);
+                    hasSuccess = true;
                 } catch (error) {
                     console.error(`Forward Error (${targetJid}):`, error.message);
-                    failedList.push(targetJid);
                 }
             }
 
-            if (successList.length > 0) {
+            if (hasSuccess) {
                 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-                let resultMsg = `✅ *Successfully forwarded to ${successList.length} target(s):*\n` + successList.map(j => `📌 ${j}`).join('\n');
-                if (failedList.length > 0) resultMsg += `\n\n❌ *Failed:* ${failedList.length}`;
-                await sock.sendMessage(from, { text: resultMsg }, { quoted: msg });
             } else {
                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                await sock.sendMessage(from, { text: '❌ Failed to forward to provided targets.' }, { quoted: msg });
             }
         }
 
