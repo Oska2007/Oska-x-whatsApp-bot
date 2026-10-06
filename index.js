@@ -7,7 +7,7 @@ import {
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import config from './config.js';
-import { formatBytes, getMaxAllowedDownloadSize, cleanTempFolder } from './lib/utils.js';
+import { formatBytes, getMaxAllowedDownloadSize, cleanTempFolder } from './utils.js';
 import { handleCommand } from './handlers/commandHandler.js';
 
 // Global Error Handlers (Prevents Bot from Crashing)
@@ -32,7 +32,7 @@ async function connectToWhatsApp() {
             auth: state,
             logger: pino({ level: 'silent' }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
-            markOnlineOnConnect: false, // Always Online පෙන්වීම වැළැක්වීමට
+            markOnlineOnConnect: false,
             syncFullHistory: false
         });
 
@@ -53,7 +53,7 @@ async function connectToWhatsApp() {
                     }
                 }, 3000);
             } else {
-                console.log('⚠️ Please set a valid phone number in config.js to obtain a pairing code.');
+                console.log('⚠️️ Please set a valid phone number in config.js to obtain a pairing code.');
             }
         }
 
@@ -76,7 +76,6 @@ async function connectToWhatsApp() {
                     console.log('[X] Session logged out. Delete "session" folder and re-scan QR code or re-pair code.');
                 }
             } else if (connection === 'open') {
-                // Bot connect වූ පසු Offline/Unavailable ලෙස පෙන්වීම
                 await sock.sendPresenceUpdate('unavailable');
 
                 const initialRam = getMaxAllowedDownloadSize();
@@ -94,12 +93,9 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // Mark message as read
             try {
                 await sock.readMessages([msg.key]);
-            } catch (e) {
-                // Ignore read errors
-            }
+            } catch (e) {}
 
             const from = msg.key.remoteJid;
             
@@ -107,7 +103,6 @@ async function connectToWhatsApp() {
                 const sender = msg.key.participant || msg.key.remoteJid;
                 const senderNumber = sender.replace(/[^0-9]/g, '');
 
-                // දුරකථන අංකය පමණක් හෝ සම්පූර්ණ JID එක (with @s.whatsapp.net / @lid) කුමන එකක් දැමුවත් වැඩ කිරීම සඳහා
                 const isAllowed = msg.key.fromMe || config.allowedUsers.some(allowed => {
                     const cleanAllowed = allowed.replace(/[^0-9]/g, '');
                     return senderNumber === cleanAllowed || sender.includes(allowed);
@@ -122,7 +117,6 @@ async function connectToWhatsApp() {
 
                 if (!textMessage.startsWith(config.prefix)) return;
 
-                // Call Command Handler
                 await handleCommand(sock, msg, from, textMessage);
 
             } catch (cmdError) {
@@ -143,5 +137,4 @@ async function connectToWhatsApp() {
     }
 }
 
-// Start the Bot
 connectToWhatsApp();
