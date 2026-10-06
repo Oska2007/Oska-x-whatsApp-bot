@@ -9,15 +9,49 @@ import pino from 'pino';
 import config from './config.js';
 import { formatBytes, getMaxAllowedDownloadSize } from './lib/utils.js';
 import { handleCommand } from './handlers/commandHandler.js';
+import { promptSetup } from './lib/startup.js';
 
-// Global Error Handlers (Prevents Bot from Crashing)
+// Global Error Handlers
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught Exception:', err.message || err);
 });
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled Rejection:', reason);
 });
+
+// Helpers
+const normalizeNumber = (s) => (s || '').replace(/[^0-9]/g, '');
+const jidToDigits = (s) => (s || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+
+// Runtime settings (populated by startup prompt + after connect)
+let runtime = {
+    usePairingCode: false,
+    pairingNumber: null,
+    allowedUsers: [],
+    ownerNumber: null
+};
+
+// LID → PN cache
+const lidToPnCache = new Map();
+
+async function resolvePN(sock, lidJid) {
+    if (!lidJid || !lidJid.endsWith('@lid')) return null;
+    const lidDigits = jidToDigits(lidJid);
+    if (lidToPnCache.has(lidDigits)) return lidToPnCache.get(lidDigits);
+
+    try {
+        const pn = await sock.signalRepository?.lidMapping?.getPNForLID?.(lidJid);
+        if (pn) {
+            const digits = jidToDigits(pn);
+            if (digits) {
+                lidToPnCache.set(lidDigits, digits);
+                return digits;
+            }
+        }
+    } catch (e) {}
+
+    return null;
+}
 
 async function connectToWhatsApp() {
     try {
@@ -30,14 +64,26 @@ async function connectToWhatsApp() {
             logger: pino({ level: 'silent' }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
             markOnlineOnConnect: false,
-            syncFullHistory: false
+            syncFullHistory: true
         });
 
         sock.ev.on('creds.update', saveCreds);
 
+        // Contacts cache (for LID → PN resolution)
+        const cacheContact = (c) => {
+            if (!c) return;
+            if (c.id && c.lid) lidToPnCache.set(jidToDigits(c.lid), jidToDigits(c.id));
+            if (c.id?.endsWith('@lid') && c.phoneNumber) {
+                lidToPnCache.set(jidToDigits(c.id), jidToDigits(c.phoneNumber));
+            }
+        };
+        sock.ev.on('contacts.upsert', (contacts) => contacts?.forEach(cacheContact));
+        sock.ev.on('contacts.update', (updates) => updates?.forEach(cacheContact));
+        sock.ev.on('messaging-history.set', ({ contacts }) => contacts?.forEach(cacheContact));
+
         // Pairing Code
-        if (config.usePairingCode && !sock.authState.creds.registered) {
-            const phoneNumber = config.owner.replace(/[^0-9]/g, '');
+        if (runtime.usePairingCode && !sock.authState.creds.registered) {
+            const phoneNumber = normalizeNumber(runtime.pairingNumber);
             if (phoneNumber) {
                 setTimeout(async () => {
                     try {
@@ -49,57 +95,109 @@ async function connectToWhatsApp() {
                         console.error('Failed to request pairing code:', error);
                     }
                 }, 3000);
-            } else {
-                console.log('⚠️ Please set a valid phone number in config.js to obtain a pairing code.');
             }
         }
 
-        // Connection Status
+        // Connection
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
-            if (qr && !config.usePairingCode) {
+            // QR Code
+            if (qr && !runtime.usePairingCode) {
                 console.log('\n📌 Scan the QR Code below:\n');
                 qrcode.generate(qr, { small: true });
             }
-            
+
             if (connection === 'close') {
-                const statusCode = (lastDisconnect?.error)?.output?.statusCode;
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log(`[!] Connection lost (${statusCode}). Reconnecting in 5 seconds...`);
+                console.log(`[!] Connection lost (${statusCode}). Reconnecting in 5s...`);
                 if (shouldReconnect) {
                     setTimeout(() => connectToWhatsApp(), 5000);
                 } else {
-                    console.log('[X] Session logged out. Delete "session" folder and re-scan QR code or re-pair code.');
+                    console.log('[X] Logged out. Delete "session" folder and re-pair.');
                 }
             } else if (connection === 'open') {
                 await sock.sendPresenceUpdate('unavailable');
 
-                const initialRam = getMaxAllowedDownloadSize();
-                console.log('--------------------------------------------------');
-                console.log(`✅ ${config.botName || 'Bot'} successfully connected to WhatsApp!`);
-                console.log(`🧠 Free RAM: ${formatBytes(initialRam.freeRamBytes)} | Dynamic Max Download Limit: ${formatBytes(initialRam.maxDownloadBytes)}`);
-                console.log('--------------------------------------------------');
+                // Resolve owner number from connected session
+                const ownerJid = sock.user?.id || '';
+                runtime.ownerNumber = jidToDigits(ownerJid);
+
+                const ram = getMaxAllowedDownloadSize();
+                const line = '═'.repeat(55);
+
+                console.log(`\n\x1b[32m${line}\x1b[0m`);
+                console.log(`\x1b[1m\x1b[32m  ✅ ${config.botName || 'Bot'} — CONNECTED\x1b[0m`);
+                console.log(`\x1b[32m${line}\x1b[0m`);
+                console.log(`  🧠  Free RAM       : \x1b[36m${formatBytes(ram.freeRamBytes)}\x1b[0m`);
+                console.log(`  📥  Max Download   : \x1b[36m${formatBytes(ram.maxDownloadBytes)}\x1b[0m`);
+                console.log(`\x1b[32m${line}\x1b[0m`);
+                console.log(`  📌  Prefix         : \x1b[33m${config.prefix}\x1b[0m`);
+                console.log(`  🔑  Method         : \x1b[33m${runtime.usePairingCode ? 'Pairing Code' : 'QR Code'}\x1b[0m`);
+                console.log(`  👤  Owner Number   : \x1b[33m${runtime.ownerNumber || '(unknown)'}\x1b[0m`);
+
+                if (runtime.allowedUsers.length === 0) {
+                    console.log(`  👥  Access         : \x1b[33mOwner only 🔒\x1b[0m`);
+                } else {
+                    console.log(`  👥  Allowed Users  : \x1b[33m${runtime.allowedUsers.length} + owner\x1b[0m`);
+                    runtime.allowedUsers.forEach((u, i) => {
+                        console.log(`        ${i + 1}. ${u}`);
+                    });
+                }
+                console.log(`\x1b[32m${line}\x1b[0m\n`);
             }
         });
 
-        // Message Handler
+        // Messages
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             if (type !== 'notify') return;
-            
-            // Bot ව සෑමවිටම offline තැබීමට මෙම පේළිය එක් කරන්න
             await sock.sendPresenceUpdate('unavailable');
 
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
             const from = msg.key.remoteJid;
-            
-            try {
-                const sender = msg.key.participant || msg.key.remoteJid;
-                const senderNumber = sender.replace(/[^0-9]/g, '');
+            if (from === 'status@broadcast') return;
 
-                const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber.includes(num.replace(/[^0-9]/g, '')));
+            try {
+                // Sender identities
+                const senderJid = msg.key.participant || msg.key.remoteJid;
+                const candidates = new Set();
+
+                const sDigits = jidToDigits(senderJid);
+                if (sDigits) candidates.add(sDigits);
+
+                const altJid = msg.key.participantAlt || msg.key.senderPn;
+                if (altJid) {
+                    const altDigits = jidToDigits(altJid);
+                    if (altDigits) candidates.add(altDigits);
+                }
+
+                if (senderJid?.endsWith('@lid')) {
+                    const resolved = await resolvePN(sock, senderJid);
+                    if (resolved) candidates.add(resolved);
+                }
+
+                const candidateArr = [...candidates];
+
+                // ============================================================
+                // AUTHORIZATION — owner always allowed
+                // allowedUsers empty → owner only
+                // allowedUsers has numbers → owner + those numbers
+                // ============================================================
+                const isOwner = runtime.ownerNumber && candidateArr.includes(runtime.ownerNumber);
+
+                let isAllowed = msg.key.fromMe || isOwner;
+
+                if (!isAllowed && runtime.allowedUsers.length > 0) {
+                    isAllowed = runtime.allowedUsers.some((entry) => {
+                        const clean = normalizeNumber(entry);
+                        return clean && candidateArr.includes(clean);
+                    });
+                }
+                // ============================================================
+
                 if (!isAllowed) return;
 
                 const textMessage = msg.message.conversation ||
@@ -109,26 +207,28 @@ async function connectToWhatsApp() {
 
                 if (!textMessage.startsWith(config.prefix)) return;
 
-                // Call Command Handler
                 await handleCommand(sock, msg, from, textMessage);
 
             } catch (cmdError) {
-                console.error(`❌ Error in command execution:`, cmdError);
+                console.error(`❌ Command error:`, cmdError);
                 try {
                     await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                    await sock.sendMessage(from, { 
-                        text: `⚠️ *An unexpected error occurred!*\n\n🚨 *Details:* ${cmdError.message || cmdError}` 
+                    await sock.sendMessage(from, {
+                        text: `⚠️ *Error!*\n\n🚨 ${cmdError.message || cmdError}`
                     }, { quoted: msg });
-                } catch (e) {
-                    console.error('Failed to send error notification message:', e);
-                }
+                } catch (e) {}
             }
         });
 
     } catch (err) {
-        console.error('❌ Fatal error connecting to WhatsApp:', err);
+        console.error('❌ Fatal error:', err);
     }
 }
 
-// Start the Bot
-connectToWhatsApp();
+// ============================================================
+// Main entry — prompt first, then connect
+// ============================================================
+(async () => {
+    runtime = await promptSetup();
+    await connectToWhatsApp();
+})();
