@@ -3,6 +3,7 @@ import os from 'os';
 import config from '../config.js';
 import { getFileMetaData, getMaxAllowedDownloadSize, formatBytes, getDetailedOS } from '../lib/utils.js';
 import { downloadQueue, processQueue, isProcessingQueue } from '../lib/downloader.js';
+import { restartBot } from '../lib/restart.js';
 
 export async function handleCommand(sock, msg, from, textMessage) {
     const command = textMessage.slice(config.prefix.length).trim().split(' ')[0].toLowerCase();
@@ -29,6 +30,8 @@ export async function handleCommand(sock, msg, from, textMessage) {
             `⚙️ *UTILITY COMMANDS*\n` +
             `🔹 *${config.prefix}fw <JID/Phone>*\n` +
             `└ Forward a replied message without the "Forwarded" tag.\n\n` +
+            `🔄 *${config.prefix}restart*\n` +
+            `└ Restart the bot (owner only).\n\n` +
             `📌 *${config.prefix}jid*\n` +
             `└ View the current chat JID address.\n\n` +
             `🖥️ *${config.prefix}sys*\n` +
@@ -328,5 +331,32 @@ export async function handleCommand(sock, msg, from, textMessage) {
                         `⏱️ *Bot Runtime:* ${uptimeFormatted}`;
 
         await sock.sendMessage(from, { text: sysInfo }, { quoted: msg });
+    }
+        // --- COMMAND 10: Restart (.restart) ---
+    else if (command === 'restart' || command === 'rs') {
+        if (!msg._isOwner) {
+            await sock.sendMessage(from, { react: { text: '⛔', key: msg.key } });
+            await sock.sendMessage(from, {
+                text: `⛔ *Owner only command!*`
+            }, { quoted: msg });
+            return;
+        }
+
+        await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
+        await sock.sendMessage(from, {
+            text: `🔄 *Restarting bot...*\n\n_This will take 10–20 seconds._\n💡 Session is saved — no re-pair needed.`
+        }, { quoted: msg });
+
+        // Delay so the message can deliver before socket closes
+        setTimeout(async () => {
+            try {
+                const result = await restartBot();
+                if (!result.ok) {
+                    console.error('Restart failed:', result.reason);
+                }
+            } catch (err) {
+                console.error('Restart error:', err.message);
+            }
+        }, 2000);
     }
 }
