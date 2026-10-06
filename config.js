@@ -1,7 +1,7 @@
 export default {
     prefix: '.',
     botName: 'Baileys Assistant Bot',
-    owner: '94768830907', // WhatsApp අංකය (රටේ කේතය සමඟ)
+    owner: '94741507907', // WhatsApp අංකය (රටේ කේතය සමඟ)
 	// Bot භාවිතා කිරීමට අවසර ඇති අංක ලැයිස්තුව
 	allowedUsers: [
         '102404955582676@lid', // ඔබ අවසර දෙන අනික් අංක මෙහි ඇතුළත් කරන්න
