@@ -5,7 +5,7 @@ export default {
 	// Bot භාවිතා කිරීමට අවසර ඇති අංක ලැයිස්තුව
 	allowedUsers: [
         '94773735970', // ඔබ අවසර දෙන අනික් අංක මෙහි ඇතුළත් කරන්න
-        '250298413097117@lid'
+        '94772488387'
     ],
     usePairingCode: true // Pairing Code එකෙන් Connect වීමට true යොදන්න. QR code එක පමණක් අවශ්‍ය නම් false යොදන්න.
 };
