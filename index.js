@@ -86,6 +86,9 @@ async function connectToWhatsApp() {
         // Message Handler
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             if (type !== 'notify') return;
+            
+            // Bot ව සෑමවිටම offline තැබීමට මෙම පේළිය එක් කරන්න
+            await sock.sendPresenceUpdate('unavailable');
 
             const msg = messages[0];
             if (!msg || !msg.message) return;
