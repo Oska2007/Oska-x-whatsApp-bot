@@ -6,13 +6,10 @@ import {
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
-import fs from 'fs';
 import config from './config.js';
 import { formatBytes, getMaxAllowedDownloadSize } from './lib/utils.js';
 import { handleCommand } from './handlers/commandHandler.js';
 import { promptSetup } from './lib/startup.js';
-import { registerRestartHandler } from './lib/restart.js';
-import { downloadQueue } from './lib/downloader.js';
 
 // Global Error Handlers
 process.on('uncaughtException', (err) => {
@@ -26,7 +23,7 @@ process.on('unhandledRejection', (reason) => {
 const normalizeNumber = (s) => (s || '').replace(/[^0-9]/g, '');
 const jidToDigits = (s) => (s || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
 
-// Runtime settings
+// Runtime settings (populated by startup prompt + after connect)
 let runtime = {
     usePairingCode: false,
     pairingNumber: null,
@@ -36,10 +33,6 @@ let runtime = {
 
 // LID → PN cache
 const lidToPnCache = new Map();
-
-// Track current socket + restart lock
-let currentSock = null;
-let restarting = false;
 
 async function resolvePN(sock, lidJid) {
     if (!lidJid || !lidJid.endsWith('@lid')) return null;
@@ -74,72 +67,9 @@ async function connectToWhatsApp() {
             syncFullHistory: true
         });
 
-        currentSock = sock;
-
         sock.ev.on('creds.update', saveCreds);
 
-        // ============================================================
-        // 🔄 Restart handler
-        // ============================================================
-        registerRestartHandler(async () => {
-            if (restarting) return { ok: false, reason: 'Restart already in progress' };
-            restarting = true;
-
-            const line = '─'.repeat(55);
-            console.log(`\n\x1b[33m${line}\x1b[0m`);
-            console.log(`\x1b[1m🔄 Restart requested\x1b[0m`);
-            console.log(`\x1b[33m${line}\x1b[0m`);
-
-            try {
-                // 1. Abort + clear download queue
-                downloadQueue.forEach(t => {
-                    if (t.abortController) {
-                        try { t.abortController.abort(); } catch (e) {}
-                    }
-                });
-                downloadQueue.length = 0;
-                console.log('  🗑️  Download queue cleared');
-
-                // 2. Clear temp folder (keep session untouched)
-                try {
-                    if (fs.existsSync('./temp')) {
-                        fs.rmSync('./temp', { recursive: true, force: true });
-                    }
-                    fs.mkdirSync('./temp', { recursive: true });
-                    console.log('  🗑️  Temp folder cleared');
-                } catch (e) {
-                    console.error('  ⚠️  Temp cleanup failed:', e.message);
-                }
-
-                // 3. Close current socket (does NOT delete session)
-                if (currentSock) {
-                    try {
-                        await currentSock.end(undefined);
-                    } catch (e) {}
-                    currentSock = null;
-                }
-
-                // 4. Wait for clean close
-                await new Promise(r => setTimeout(r, 1500));
-
-                // 5. Reconnect — session is intact, no re-pair needed
-                console.log('  🔌 Reconnecting...');
-                connectToWhatsApp();
-
-                console.log(`\x1b[32m  ✅ Restart triggered\x1b[0m`);
-                console.log(`\x1b[33m${line}\x1b[0m\n`);
-
-                return { ok: true };
-            } catch (err) {
-                console.error('❌ Restart failed:', err.message);
-                return { ok: false, reason: err.message };
-            } finally {
-                setTimeout(() => { restarting = false; }, 5000);
-            }
-        });
-        // ============================================================
-
-        // Contacts cache
+        // Contacts cache (for LID → PN resolution)
         const cacheContact = (c) => {
             if (!c) return;
             if (c.id && c.lid) lidToPnCache.set(jidToDigits(c.lid), jidToDigits(c.id));
@@ -172,6 +102,7 @@ async function connectToWhatsApp() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
+            // QR Code
             if (qr && !runtime.usePairingCode) {
                 console.log('\n📌 Scan the QR Code below:\n');
                 qrcode.generate(qr, { small: true });
@@ -189,6 +120,7 @@ async function connectToWhatsApp() {
             } else if (connection === 'open') {
                 await sock.sendPresenceUpdate('unavailable');
 
+                // Resolve owner number from connected session
                 const ownerJid = sock.user?.id || '';
                 runtime.ownerNumber = jidToDigits(ownerJid);
 
@@ -229,6 +161,7 @@ async function connectToWhatsApp() {
             if (from === 'status@broadcast') return;
 
             try {
+                // Sender identities
                 const senderJid = msg.key.participant || msg.key.remoteJid;
                 const candidates = new Set();
 
@@ -248,7 +181,11 @@ async function connectToWhatsApp() {
 
                 const candidateArr = [...candidates];
 
-                // Authorization
+                // ============================================================
+                // AUTHORIZATION — owner always allowed
+                // allowedUsers empty → owner only
+                // allowedUsers has numbers → owner + those numbers
+                // ============================================================
                 const isOwner = runtime.ownerNumber && candidateArr.includes(runtime.ownerNumber);
 
                 let isAllowed = msg.key.fromMe || isOwner;
@@ -259,6 +196,7 @@ async function connectToWhatsApp() {
                         return clean && candidateArr.includes(clean);
                     });
                 }
+                // ============================================================
 
                 if (!isAllowed) return;
 
@@ -268,9 +206,6 @@ async function connectToWhatsApp() {
                                     msg.message.videoMessage?.caption || '';
 
                 if (!textMessage.startsWith(config.prefix)) return;
-
-                // 👇 Attach flags for command handler
-                msg._isOwner = isOwner;
 
                 await handleCommand(sock, msg, from, textMessage);
 
@@ -290,7 +225,9 @@ async function connectToWhatsApp() {
     }
 }
 
-// Main entry
+// ============================================================
+// Main entry — prompt first, then connect
+// ============================================================
 (async () => {
     runtime = await promptSetup();
     await connectToWhatsApp();
