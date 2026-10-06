@@ -7,7 +7,7 @@ import {
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import config from './config.js';
-import { formatBytes, getMaxAllowedDownloadSize, cleanTempFolder } from './utils.js';
+import { formatBytes, getMaxAllowedDownloadSize } from './lib/utils.js';
 import { handleCommand } from './handlers/commandHandler.js';
 
 // Global Error Handlers (Prevents Bot from Crashing)
@@ -18,9 +18,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
     console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
-
-// Clean temp folder on startup
-cleanTempFolder();
 
 async function connectToWhatsApp() {
     try {
@@ -53,7 +50,7 @@ async function connectToWhatsApp() {
                     }
                 }, 3000);
             } else {
-                console.log('⚠️️ Please set a valid phone number in config.js to obtain a pairing code.');
+                console.log('⚠️ Please set a valid phone number in config.js to obtain a pairing code.');
             }
         }
 
@@ -90,12 +87,11 @@ async function connectToWhatsApp() {
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             if (type !== 'notify') return;
 
+        // Bot ව සෑමවිටම offline තැබීමට මෙම පේළිය එක් කරන්න
+            await sock.sendPresenceUpdate('unavailable');
+
             const msg = messages[0];
             if (!msg || !msg.message) return;
-
-            try {
-                await sock.readMessages([msg.key]);
-            } catch (e) {}
 
             const from = msg.key.remoteJid;
             
@@ -103,11 +99,7 @@ async function connectToWhatsApp() {
                 const sender = msg.key.participant || msg.key.remoteJid;
                 const senderNumber = sender.replace(/[^0-9]/g, '');
 
-                const isAllowed = msg.key.fromMe || config.allowedUsers.some(allowed => {
-                    const cleanAllowed = allowed.replace(/[^0-9]/g, '');
-                    return senderNumber === cleanAllowed || sender.includes(allowed);
-                });
-                
+                const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber.includes(num.replace(/[^0-9]/g, '')));
                 if (!isAllowed) return;
 
                 const textMessage = msg.message.conversation ||
@@ -117,6 +109,7 @@ async function connectToWhatsApp() {
 
                 if (!textMessage.startsWith(config.prefix)) return;
 
+                // Call Command Handler
                 await handleCommand(sock, msg, from, textMessage);
 
             } catch (cmdError) {
@@ -137,4 +130,5 @@ async function connectToWhatsApp() {
     }
 }
 
+// Start the Bot
 connectToWhatsApp();
