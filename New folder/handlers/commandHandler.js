@@ -56,21 +56,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
         const { fileName: tempName, fileSize, sizeInBytes } = await getFileMetaData(url);
         const { freeRamBytes, maxDownloadBytes } = getMaxAllowedDownloadSize();
 
-        if (sizeInBytes === 0) {
-            await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
-            await sock.sendMessage(from, { 
-                text: `⚠️ *Unknown File Size!*\n\n📄 *File Name:* ${tempName}\n\nThe file size could not be determined. Proceeding with caution, but it may fail if it exceeds limits.` 
-            }, { quoted: msg });
-        }
-
-        if (sizeInBytes > 2000000000) {
-             await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-             await sock.sendMessage(from, { 
-                text: `❌ *File Too Large for WhatsApp!*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n⚠️ *WhatsApp Limit:* 2 GB\n\n_Cannot send files larger than 2GB via WhatsApp._` 
-            }, { quoted: msg });
-            return;
-        }
-
         if (sizeInBytes > 0 && sizeInBytes > maxDownloadBytes) {
             await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
             await sock.sendMessage(from, { 
@@ -95,7 +80,7 @@ export async function handleCommand(sock, msg, from, textMessage) {
             text: `📥 *Link Added to Queue*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n🔢 *Queue Position:* ${downloadQueue.length}` 
         }, { quoted: msg });
 
-        processQueue(sock).catch(console.error);
+        processQueue(sock);
     }
 
     // --- COMMAND 3: Priority Queue (.qf <Number | Link>) ---
@@ -140,21 +125,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
             const { fileName: tempName, fileSize, sizeInBytes } = await getFileMetaData(url);
             const { freeRamBytes, maxDownloadBytes } = getMaxAllowedDownloadSize();
 
-            if (sizeInBytes === 0) {
-                await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
-                await sock.sendMessage(from, { 
-                    text: `⚠️ *Unknown File Size!*\n\n📄 *File Name:* ${tempName}\n\nThe file size could not be determined. Proceeding with caution, but it may fail if it exceeds limits.` 
-                }, { quoted: msg });
-            }
-
-            if (sizeInBytes > 2000000000) {
-                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                 await sock.sendMessage(from, { 
-                    text: `❌ *File Too Large for WhatsApp!*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n⚠️ *WhatsApp Limit:* 2 GB\n\n_Cannot send files larger than 2GB via WhatsApp._` 
-                }, { quoted: msg });
-                return;
-            }
-
             if (sizeInBytes > 0 && sizeInBytes > maxDownloadBytes) {
                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                 await sock.sendMessage(from, { 
@@ -181,7 +151,7 @@ export async function handleCommand(sock, msg, from, textMessage) {
                 text: `⚡ *Priority Link Added!*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n📌 *Queue Position:* Next in line (#${insertPos + 1})` 
             }, { quoted: msg });
 
-            processQueue(sock).catch(console.error);
+            processQueue(sock);
             return;
         }
 

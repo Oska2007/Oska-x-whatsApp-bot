@@ -87,29 +87,17 @@ async function connectToWhatsApp() {
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             if (type !== 'notify') return;
 
-        // Bot ව සෑමවිටම offline තැබීමට මෙම පේළිය එක් කරන්න
-            await sock.sendPresenceUpdate('unavailable');
-
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
             const from = msg.key.remoteJid;
             
             try {
-               // Message Handler ඇතුළත ඇති isAllowed කොටස මෙලෙස වෙනස් කරන්න:
-
                 const sender = msg.key.participant || msg.key.remoteJid;
                 const senderNumber = sender.replace(/[^0-9]/g, '');
 
-              // නව ක්‍රමය: දුරකථන අංකය පමණක් හෝ JID එක (with @s.whatsapp.net / @lid) කුමන එකක් දැමුවත් වැඩ කිරීමට සකස් කිරීම
-               const isAllowed = msg.key.fromMe || config.allowedUsers.some(allowed => {
-               const cleanAllowed = allowed.replace(/[^0-9]/g, '');
-             // 1. දුරකථන අංකය පමණක් සමාන දැයි බැලීම (උදා: 94768830907)
-             // 2. නැතහොත් සම්පූර්ණ JID එක සමාන දැයි බැලීම
-               return senderNumber === cleanAllowed || sender.includes(allowed);
-          });
-
-               if (!isAllowed) return;
+                const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber.includes(num.replace(/[^0-9]/g, '')));
+                if (!isAllowed) return;
 
                 const textMessage = msg.message.conversation ||
                                     msg.message.extendedTextMessage?.text ||
