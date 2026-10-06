@@ -56,7 +56,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
         const { fileName: tempName, fileSize, sizeInBytes } = await getFileMetaData(url);
         const { freeRamBytes, maxDownloadBytes } = getMaxAllowedDownloadSize();
 
-        // FIX 3: Handling unknown size (sizeInBytes === 0)
         if (sizeInBytes === 0) {
             await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
             await sock.sendMessage(from, { 
@@ -64,7 +63,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
             }, { quoted: msg });
         }
 
-        // FIX 1: Add 2GB limit check for WhatsApp
         if (sizeInBytes > 2000000000) {
              await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
              await sock.sendMessage(from, { 
@@ -97,7 +95,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
             text: `📥 *Link Added to Queue*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n🔢 *Queue Position:* ${downloadQueue.length}` 
         }, { quoted: msg });
 
-        // FIX 5: Handle Promise Rejection
         processQueue(sock).catch(console.error);
     }
 
@@ -143,7 +140,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
             const { fileName: tempName, fileSize, sizeInBytes } = await getFileMetaData(url);
             const { freeRamBytes, maxDownloadBytes } = getMaxAllowedDownloadSize();
 
-            // FIX 3: Handling unknown size (sizeInBytes === 0)
             if (sizeInBytes === 0) {
                 await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
                 await sock.sendMessage(from, { 
@@ -151,7 +147,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
                 }, { quoted: msg });
             }
 
-            // FIX 1: Add 2GB limit check for WhatsApp
             if (sizeInBytes > 2000000000) {
                  await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                  await sock.sendMessage(from, { 
@@ -186,7 +181,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
                 text: `⚡ *Priority Link Added!*\n\n📄 *File Name:* ${tempName}\n📊 *File Size:* ${fileSize}\n📌 *Queue Position:* Next in line (#${insertPos + 1})` 
             }, { quoted: msg });
 
-            // FIX 5: Handle Promise Rejection
             processQueue(sock).catch(console.error);
             return;
         }
