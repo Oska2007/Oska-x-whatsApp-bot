@@ -61,7 +61,7 @@ _📥 Download files • ⚡ Priority queue • 🧠 Smart RAM protection • �
 - Add urgent links directly (`.qf <url>`)
 - Live progress tracking (`.du`)
 - Speed + ETA display
-- Cancel entire queue (`.dqm`)
+- Cancel entire queue (`.dq`)
 
 </td>
 </tr>
@@ -96,9 +96,9 @@ _📥 Download files • ⚡ Priority queue • 🧠 Smart RAM protection • �
 
 ### 🖥️ System Utilities
 
-- `.platform` — OS, RAM, CPU, uptime
+- `.sys` — OS, RAM, CPU, uptime
 - `.jid` — current chat JID
-- `.fwm` — forward without tag
+- `.fw` — forward without tag
 - Detailed OS detection (Termux, Docker, cloud)
 
 </td>
@@ -415,31 +415,34 @@ docker run -d \
 
 ## 🎮 Commands
 
+> 💡 **All commands use the prefix** (default: `.`)  
+> Example: `.dl https://example.com/file.pdf`
+
 ### 📥 Download Commands
 
-| Command          | Description                          | Example                        |
-| ---------------- | ------------------------------------ | ------------------------------ |
-| `.dlurlm <link>` | Download file from direct link       | `.dlurlm https://ex.com/a.pdf` |
-| `.qf <number>`   | Move queue item to top               | `.qf 3`                        |
-| `.qf <link>`     | Add urgent link next in line         | `.qf https://ex.com/b.zip`     |
-| `.du`            | Active download progress, speed, ETA | `.du`                          |
-| `.qm`            | View complete queue                  | `.qm`                          |
-| `.dqm`           | Stop active download + clear queue   | `.dqm`                         |
+| Command            | Description                                | Example                    |
+| ------------------ | ------------------------------------------ | -------------------------- |
+| **`.dl <link>`**   | Download file from a direct link           | `.dl https://ex.com/a.pdf` |
+| **`.qf <number>`** | Move a queue item to the top               | `.qf 3`                    |
+| **`.qf <link>`**   | Add an urgent link next in line            | `.qf https://ex.com/b.zip` |
+| **`.du`**          | Check active download progress, speed, ETA | `.du`                      |
+| **`.q`**           | View the complete download queue           | `.q`                       |
+| **`.dq`**          | Stop active download + clear queue         | `.dq`                      |
 
 ### ⚙️ Utility Commands
 
-| Command       | Description                      | Example            |
-| ------------- | -------------------------------- | ------------------ |
-| `.menu`       | Display command menu             | `.menu`            |
-| `.fwm <jids>` | Forward replied message (no tag) | `.fwm 94711111111` |
-| `.jid`        | View current chat JID            | `.jid`             |
-| `.platform`   | Show OS, RAM, CPU, uptime        | `.platform`        |
+| Command          | Description                         | Example           |
+| ---------------- | ----------------------------------- | ----------------- |
+| **`.menu`**      | Display the command menu            | `.menu`           |
+| **`.fw <jids>`** | Forward replied message without tag | `.fw 94711111111` |
+| **`.jid`**       | View the current chat JID           | `.jid`            |
+| **`.sys`**       | Show OS, RAM, CPU, uptime info      | `.sys`            |
 
 ### 💡 Real Examples
 
 ```bash
 # Download a small file
-.dlurlm https://example.com/file.pdf
+.dl https://example.com/file.pdf
 
 # Add an urgent link (jumps queue)
 .qf https://example.com/urgent.zip
@@ -450,11 +453,34 @@ docker run -d \
 # Check download progress
 .du
 
+# View the queue
+.q
+
+# Cancel everything
+.dq
+
 # Forward a message to 2 recipients
-.fwm 94711111111 94722222222
+.fw 94711111111 94722222222
 
 # See bot hosting info
-.platform
+.sys
+```
+
+### 📋 Quick Reference Card
+
+```
+📥 DOWNLOAD
+  .dl <link>          Download a file
+  .qf <num|link>      Priority queue
+  .du                 Progress status
+  .q                  View queue
+  .dq                 Cancel queue
+
+⚙️ UTILITY
+  .menu               Command menu
+  .fw <jids>          Forward without tag
+  .jid                Current chat JID
+  .sys                System info
 ```
 
 ---
@@ -671,6 +697,24 @@ The bot auto-detects these and skips the prompt.
 </details>
 
 <details>
+<summary><b>❌ Command not working — bot ignores it</b></summary>
+
+**Cause:** You may be using an **old command name**.
+
+**Fix:** This bot supports only the **short commands**. Check the [Commands](#-commands) section:
+
+| ❌ Old (removed) | ✅ New  |
+| ---------------- | ------- |
+| `.dlurlm`        | `.dl`   |
+| `.qm`            | `.q`    |
+| `.dqm`           | `.dq`   |
+| `.fwm`           | `.fw`   |
+| `.platform`      | `.sys`  |
+| `.help`          | `.menu` |
+
+</details>
+
+<details>
 <summary><b>❌ EMFILE: too many open files</b></summary>
 
 **Cause:** File handle leak from aborted downloads (fixed in v1.0+).
@@ -736,11 +780,12 @@ The bot auto-detects these and skips the prompt.
 - [x] File handle leak fix
 - [x] Owner-only mode
 - [x] Cloud deployment ready
+- [x] Short command names (`.dl`, `.q`, `.dq`, `.fw`, `.sys`)
 
 ### 🚧 In Progress
 
 - [ ] Real-time rolling speed calculation
-- [ ] Media re-upload for `.fwm`
+- [ ] Media re-upload for `.fw`
 - [ ] Download resume support
 
 ### 💡 Planned

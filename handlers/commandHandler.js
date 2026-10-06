@@ -8,30 +8,30 @@ export async function handleCommand(sock, msg, from, textMessage) {
     const command = textMessage.slice(config.prefix.length).trim().split(' ')[0].toLowerCase();
     const args = textMessage.trim().split(/ +/).slice(1);
 
-    // --- COMMAND 1: Help Menu (.menu / .help) ---
-    if (command === 'menu' || command === 'help') {
+    // --- COMMAND 1: Help Menu (.menu) ---
+    if (command === 'menu') {
         await sock.sendMessage(from, { react: { text: '📜', key: msg.key } });
 
         const menuText = 
             `🤖 *${config.botName || 'WhatsApp Bot'} Commands Menu*\n` +
             `PREFIX: \`${config.prefix}\`\n\n` +
             `📥 *DOWNLOAD COMMANDS*\n` +
-            `🔹 *${config.prefix}dlurlm <Link>*\n` +
+            `🔹 *${config.prefix}dl <Link>*\n` +
             `└ Download a file directly from a direct link.\n\n` +
             `⚡ *${config.prefix}qf <Queue No | Link>*\n` +
             `└ Move a queue item to top or add an urgent direct link next in line.\n\n` +
             `📊 *${config.prefix}du*\n` +
             `└ Check real-time download/upload progress, speed, and ETA.\n\n` +
-            `📋 *${config.prefix}qm*\n` +
+            `📋 *${config.prefix}q*\n` +
             `└ View the complete list of files in the download queue.\n\n` +
-            `🛑 *${config.prefix}dqm*\n` +
+            `🛑 *${config.prefix}dq*\n` +
             `└ Stop active download and clear the entire queue.\n\n` +
             `⚙️ *UTILITY COMMANDS*\n` +
-            `🔹 *${config.prefix}fwm <JID/Phone>*\n` +
+            `🔹 *${config.prefix}fw <JID/Phone>*\n` +
             `└ Forward a replied message without the "Forwarded" tag.\n\n` +
             `📌 *${config.prefix}jid*\n` +
             `└ View the current chat JID address.\n\n` +
-            `🖥️ *${config.prefix}platform*\n` +
+            `🖥️ *${config.prefix}sys*\n` +
             `└ View hosting platform OS, RAM usage, CPU, and Node.js details.\n\n` +
             `📜 *${config.prefix}menu*\n` +
             `└ Display this command menu.`;
@@ -39,14 +39,14 @@ export async function handleCommand(sock, msg, from, textMessage) {
         await sock.sendMessage(from, { text: menuText }, { quoted: msg });
     }
 
-    // --- COMMAND 2: Direct File Download (.dlurlm <link>) ---
-    else if (command === 'dlurlm') {
+    // --- COMMAND 2: Direct File Download (.dl <link>) ---
+    else if (command === 'dl') {
         const url = args[0];
 
         if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
             await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
             await sock.sendMessage(from, { 
-                text: `⚠️ Usage:\n${config.prefix}dlurlm <Direct Link>\n\n💡 *Example:* \n${config.prefix}dlurlm https://example.com/file.pdf` 
+                text: `⚠️ Usage:\n${config.prefix}dl <Direct Link>\n\n💡 *Example:* \n${config.prefix}dl https://example.com/file.pdf` 
             }, { quoted: msg });
             return;
         }
@@ -84,7 +84,7 @@ export async function handleCommand(sock, msg, from, textMessage) {
     }
 
     // --- COMMAND 3: Priority Queue (.qf <Number | Link>) ---
-    else if (command === 'qf' || command === 'qfast') {
+    else if (command === 'qf') {
         const input = args[0];
 
         if (!input) {
@@ -159,7 +159,7 @@ export async function handleCommand(sock, msg, from, textMessage) {
     }
 
     // --- COMMAND 4: Check Progress (.du) ---
-    else if (command === 'du' || command === 'status' || command === 'progress') {
+    else if (command === 'du') {
         await sock.sendMessage(from, { react: { text: '📊', key: msg.key } });
 
         const activeTask = downloadQueue.find(t => t.status === 'downloading' || t.status === 'uploading');
@@ -201,8 +201,8 @@ export async function handleCommand(sock, msg, from, textMessage) {
         await sock.sendMessage(from, { text: statusMsg }, { quoted: msg });
     }
 
-    // --- COMMAND 5: Check Queue (.qm) ---
-    else if (command === 'qm' || command === 'queue') {
+    // --- COMMAND 5: Check Queue (.q) ---
+    else if (command === 'q') {
         await sock.sendMessage(from, { react: { text: '📋', key: msg.key } });
 
         if (downloadQueue.length === 0) {
@@ -219,8 +219,8 @@ export async function handleCommand(sock, msg, from, textMessage) {
         await sock.sendMessage(from, { text: queueText.trim() }, { quoted: msg });
     }
 
-    // --- COMMAND 6: Cancel Queue (.dqm) ---
-    else if (command === 'dqm' || command === 'cancelqueue') {
+    // --- COMMAND 6: Cancel Queue (.dq) ---
+    else if (command === 'dq') {
         await sock.sendMessage(from, { react: { text: '🛑', key: msg.key } });
 
         if (downloadQueue.length === 0) {
@@ -240,14 +240,14 @@ export async function handleCommand(sock, msg, from, textMessage) {
         await sock.sendMessage(from, { text: `🛑 Queue cleared and active downloads cancelled.` }, { quoted: msg });
     }
 
-    // --- COMMAND 7: Forward without Tag (.fwm <JIDs>) ---
-    else if (command === 'fwm') {
+    // --- COMMAND 7: Forward without Tag (.fw <JIDs>) ---
+    else if (command === 'fw') {
         const rawTargets = args.join(' ').split(/[\s,]+/).filter(Boolean);
 
         if (rawTargets.length === 0) {
             await sock.sendMessage(from, { react: { text: '⚠️', key: msg.key } });
             await sock.sendMessage(from, { 
-                text: `⚠️ Usage:\nReply to a message and provide up to 6 JIDs/Numbers:\n💡 *Example:* ${config.prefix}fwm 94711111111 94722222222 1203xxxxxx@g.us`
+                text: `⚠️ Usage:\nReply to a message and provide up to 6 JIDs/Numbers:\n💡 *Example:* ${config.prefix}fw 94711111111 94722222222 1203xxxxxx@g.us`
             }, { quoted: msg });
             return;
         }
@@ -294,8 +294,8 @@ export async function handleCommand(sock, msg, from, textMessage) {
         await sock.sendMessage(from, { text: `📌 Current Chat JID:\n${from}` }, { quoted: msg });
     }
 
-    // --- COMMAND 9: Platform Info (.platform / .sys) ---
-    else if (command === 'platform' || command === 'sys' || command === 'host') {
+    // --- COMMAND 9: Platform Info (.sys) ---
+    else if (command === 'sys') {
         await sock.sendMessage(from, { react: { text: '🖥', key: msg.key } });
 
         const osName = getDetailedOS();
