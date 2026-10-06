@@ -44,7 +44,7 @@ _📥 Direct downloads • ⚡ Priority queue • 🧠 Smart RAM protection • 
 **Prerequisites:** Node.js v18+ and an active WhatsApp account.
 
 ```bash
-git clone https://github.com/oska2007/oska-x-WhatsApp bot.git
+git clone https://github.com/oska2007/oska-x-WhatsApp-bot.git
 cd baileys-assistant-bot
 npm install
 npm start
