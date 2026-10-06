@@ -78,7 +78,7 @@ async function connectToWhatsApp() {
                 const initialRam = getMaxAllowedDownloadSize();
                 console.log('--------------------------------------------------');
                 console.log(`✅ ${config.botName || 'Bot'} successfully connected to WhatsApp!`);
-                console.log(`🧠 Free RAM: ${formatBytes(initialRam.freeRamBytes)} | Dynamic Max Download Limit: ${formatBytes(initialRam.maxDownloadBytes)}`);
+                console.log(`🧠 Free RAM: ${formatBytes(initialRam.freeRamBytes)} \vert{} Dynamic Max Download Limit:${formatBytes(initialRam.maxDownloadBytes)}`);
                 console.log('--------------------------------------------------');
             }
         });
@@ -96,7 +96,8 @@ async function connectToWhatsApp() {
                 const sender = msg.key.participant || msg.key.remoteJid;
                 const senderNumber = sender.replace(/[^0-9]/g, '');
 
-                const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber.includes(num.replace(/[^0-9]/g, '')));
+                // FIX: Strict equality check to prevent authorization bypass
+                const isAllowed = msg.key.fromMe || config.allowedUsers.some(num => senderNumber === num.replace(/[^0-9]/g, ''));
                 if (!isAllowed) return;
 
                 const textMessage = msg.message.conversation ||
