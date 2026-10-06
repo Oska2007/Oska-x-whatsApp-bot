@@ -44,7 +44,7 @@ _📥 Direct downloads • ⚡ Priority queue • 🧠 Smart RAM protection • 
 **Prerequisites:** Node.js v18+ and an active WhatsApp account.
 
 ```bash
-git clone https://github.com/oska2007/oska-x-WhatsApp-bot.git
+git clone https://github.com/Oska2007/Oska-x-whatsApp-bot.git
 cd baileys-assistant-bot
 npm install
 npm start
@@ -87,7 +87,7 @@ Set in **Railway / Koyeb / Render → Variables** tab:
 | Variable           | Example                   |
 | ------------------ | ------------------------- |
 | `USE_PAIRING_CODE` | `true`                    |
-| `PAIRING_NUMBER`   | `94768830907`             |
+| `PAIRING_NUMBER`   | `94711111111`             |
 | `ALLOWED_USERS`    | `94711111111,94722222222` |
 
 ### 🥈 2. `config.js` _(recommended for VPS)_
@@ -98,7 +98,7 @@ export default {
   botName: "Baileys Assistant Bot",
 
   usePairingCode: true, // true = Pairing | false = QR
-  pairingNumber: "94768830907", // digits only
+  pairingNumber: "94111111111", // digits only
 
   allowedUsers: ["94711111111", "94722222222"],
   // [] = owner only 🔒
@@ -122,7 +122,7 @@ Do nothing — the bot asks on startup.
 3. **Variables** tab → add:
    ```
    USE_PAIRING_CODE=true
-   PAIRING_NUMBER=94768830907
+   PAIRING_NUMBER=94711111111
    ALLOWED_USERS=94711111111,94722222222
    ```
 4. **Deployments → View Logs** → copy the pairing code
@@ -138,9 +138,7 @@ Same approach: push to GitHub, add env vars, deploy, check logs for the pairing 
 
 ```bash
 npm install -g pm2
-pm2 start index.js --name baileys-bot
-pm2 save && pm2 startup
-pm2 logs baileys-bot
+npm start
 ```
 
 ---
