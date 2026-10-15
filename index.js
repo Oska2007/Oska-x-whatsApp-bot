@@ -6,12 +6,16 @@ import {
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
+import fs from 'fs';
+import path from 'path';
 import config from './config.js';
 import { formatBytes, getMaxAllowedDownloadSize } from './lib/utils.js';
 import { handleCommand } from './handlers/commandHandler.js';
 import { promptSetup } from './lib/startup.js';
 
+// ============================================================
 // Global Error Handlers
+// ============================================================
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught Exception:', err.message || err);
 });
@@ -19,7 +23,28 @@ process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled Rejection:', reason);
 });
 
+// ============================================================
+// ✅ FIX #2: Cleanup temp folder on startup
+// ============================================================
+const TEMP_DIR = './temp';
+if (fs.existsSync(TEMP_DIR)) {
+    let cleaned = 0;
+    try {
+        for (const file of fs.readdirSync(TEMP_DIR)) {
+            try {
+                fs.unlinkSync(path.join(TEMP_DIR, file));
+                cleaned++;
+            } catch (e) {}
+        }
+        if (cleaned > 0) console.log(`🧹 Cleaned ${cleaned} old temp file(s) on startup`);
+    } catch (e) {
+        console.error('⚠️ Temp cleanup failed:', e.message);
+    }
+}
+
+// ============================================================
 // Helpers
+// ============================================================
 const normalizeNumber = (s) => (s || '').replace(/[^0-9]/g, '');
 const jidToDigits = (s) => (s || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
 
@@ -33,6 +58,26 @@ let runtime = {
 
 // LID → PN cache
 const lidToPnCache = new Map();
+
+// ============================================================
+// ✅ FIX #1: Socket lifecycle management (prevent leaks)
+// ============================================================
+let currentSock = null;
+let reconnectTimer = null;
+let isConnecting = false;
+
+// ============================================================
+// ✅ FIX #3: Message dedup (prevent duplicate replies)
+// ============================================================
+const processedMsgIds = new Set();
+const MSG_ID_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Periodic cleanup for dedup set
+setInterval(() => {
+    if (processedMsgIds.size > 500) {
+        processedMsgIds.clear();
+    }
+}, MSG_ID_TTL);
 
 async function resolvePN(sock, lidJid) {
     if (!lidJid || !lidJid.endsWith('@lid')) return null;
@@ -54,7 +99,30 @@ async function resolvePN(sock, lidJid) {
 }
 
 async function connectToWhatsApp() {
+    // ✅ Guard: already connecting → skip duplicate invocation
+    if (isConnecting) {
+        console.log('[!] Already connecting, skipping duplicate call');
+        return;
+    }
+    isConnecting = true;
+
     try {
+        // ✅ FIX #1: Clean up previous socket BEFORE creating a new one
+        if (currentSock) {
+            try {
+                currentSock.ev.removeAllListeners();
+                currentSock.ws?.close();
+                currentSock.end?.(undefined);
+            } catch (e) {}
+            currentSock = null;
+        }
+
+        // ✅ FIX #1: Clear any pending reconnect timer
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+
         const { state, saveCreds } = await useMultiFileAuthState('./session');
         const { version } = await fetchLatestBaileysVersion();
 
@@ -64,8 +132,13 @@ async function connectToWhatsApp() {
             logger: pino({ level: 'silent' }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
             markOnlineOnConnect: false,
-            syncFullHistory: true
+            // ✅ FIX #1: syncFullHistory=false prevents RAM explosion on large accounts
+            syncFullHistory: false,
+            generateHighQualityLinkPreview: false
         });
+
+        // ✅ FIX #1: Track active socket globally
+        currentSock = sock;
 
         sock.ev.on('creds.update', saveCreds);
 
@@ -112,12 +185,22 @@ async function connectToWhatsApp() {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                 console.log(`[!] Connection lost (${statusCode}). Reconnecting in 5s...`);
+
+                // ✅ FIX #1: Reset flag, schedule reconnect safely
+                isConnecting = false;
+
                 if (shouldReconnect) {
-                    setTimeout(() => connectToWhatsApp(), 5000);
+                    reconnectTimer = setTimeout(() => {
+                        reconnectTimer = null;
+                        connectToWhatsApp();
+                    }, 5000);
                 } else {
                     console.log('[X] Logged out. Delete "session" folder and re-pair.');
                 }
             } else if (connection === 'open') {
+                // ✅ FIX #1: Connection succeeded — reset flag
+                isConnecting = false;
+
                 await sock.sendPresenceUpdate('unavailable');
 
                 // Resolve owner number from connected session
@@ -159,6 +242,15 @@ async function connectToWhatsApp() {
 
             const from = msg.key.remoteJid;
             if (from === 'status@broadcast') return;
+
+            // ✅ FIX #3: Message dedup — skip already-processed message IDs
+            const msgId = msg.key?.id;
+            if (msgId) {
+                if (processedMsgIds.has(msgId)) {
+                    return;
+                }
+                processedMsgIds.add(msgId);
+            }
 
             try {
                 // Sender identities
@@ -222,6 +314,8 @@ async function connectToWhatsApp() {
 
     } catch (err) {
         console.error('❌ Fatal error:', err);
+        // ✅ FIX #1: Reset flag on fatal error so we can retry
+        isConnecting = false;
     }
 }
 
