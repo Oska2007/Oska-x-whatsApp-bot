@@ -320,9 +320,43 @@ async function connectToWhatsApp() {
 }
 
 // ============================================================
-// Main entry — prompt first, then connect
+// Main entry — session එක තියෙනවා නම් prompt skip කරන්න
 // ============================================================
+const SETTINGS_FILE = './session/settings.json';
+
 (async () => {
-    runtime = await promptSetup();
+    if (fs.existsSync('./session/creds.json')) {
+        // ✅ Session තියෙනවා — prompt skip, saved settings load කරන්න
+        let saved = {};
+        try {
+            if (fs.existsSync(SETTINGS_FILE)) {
+                saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+            }
+        } catch (e) {
+            console.error('⚠️ Could not read settings.json:', e.message);
+        }
+
+        console.log('✅ Existing session found — loading saved settings');
+        runtime = {
+            usePairingCode: false,
+            pairingNumber: null,
+            allowedUsers: Array.isArray(saved.allowedUsers) ? saved.allowedUsers : []
+        };
+    } else {
+        // පළමු වතාවට — terminal prompt එකේ විදිහටම
+        runtime = await promptSetup();
+
+        // ✅ Prompt එකෙන් ආපු settings save කරන්න
+        try {
+            fs.mkdirSync('./session', { recursive: true });
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify({
+                allowedUsers: runtime.allowedUsers || []
+            }, null, 2));
+            console.log(`💾 Saved settings → ${SETTINGS_FILE}`);
+        } catch (e) {
+            console.error('⚠️ Could not save settings.json:', e.message);
+        }
+    }
+
     await connectToWhatsApp();
 })();
