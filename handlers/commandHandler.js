@@ -1,5 +1,4 @@
 import { generateWAMessageFromContent } from '@whiskeysockets/baileys';
-import { spawn } from 'child_process';
 import os from 'os';
 import config from '../config.js';
 import { getFileMetaData, getMaxAllowedDownloadSize, formatBytes, getDetailedOS } from '../lib/utils.js';
@@ -34,8 +33,6 @@ export async function handleCommand(sock, msg, from, textMessage) {
             `└ View the current chat JID address.\n\n` +
             `🖥️ *${config.prefix}sys*\n` +
             `└ View hosting platform OS, RAM usage, CPU, and Node.js details.\n\n` +
-            `🔄 *${config.prefix}restart*\n` +
-            `└ Restart the bot process (session preserved).\n\n` +
             `📜 *${config.prefix}menu*\n` +
             `└ Display this command menu.`;
 
@@ -331,42 +328,5 @@ export async function handleCommand(sock, msg, from, textMessage) {
                         `⏱️ *Bot Runtime:* ${uptimeFormatted}`;
 
         await sock.sendMessage(from, { text: sysInfo }, { quoted: msg });
-    }
-
-    // --- COMMAND 10: Restart Bot (.restart) ---
-    else if (command === 'restart') {
-        await sock.sendMessage(from, { react: { text: '🔄', key: msg.key } });
-        await sock.sendMessage(from, {
-            text: `🔄 *Restarting Bot...*\n\n⏳ Bot process will be back online in a few seconds.\n📌 Session and settings are preserved.`
-        }, { quoted: msg });
-
-        // 2s delay එකෙන් restart කරන්න — message එක deliver වෙන්න කලින්
-        setTimeout(async () => {
-            try {
-                // ✅ Step 1: Current socket cleanly close
-                sock.ev.removeAllListeners();
-                sock.ws?.close();
-                if (typeof sock.end === 'function') {
-                    try { await sock.end(undefined); } catch (_) {}
-                }
-            } catch (e) {}
-
-            try {
-                // ✅ Step 2: Spawn replacement process (detached, same cwd/env)
-                const child = spawn(process.execPath, process.argv.slice(1), {
-                    detached: true,
-                    stdio: 'inherit',
-                    cwd: process.cwd(),
-                    env: process.env
-                });
-                child.unref();
-                console.log('🔄 Restart: spawned replacement process, PID', child.pid);
-            } catch (e) {
-                console.error('❌ Restart spawn failed:', e.message);
-            }
-
-            // ✅ Step 3: Exit current process
-            process.exit(0);
-        }, 2000);
     }
 }
